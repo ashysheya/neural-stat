@@ -2,9 +2,12 @@ from torch.utils.data import Dataset
 from utils import generate_1d_datasets
 
 
-def get_dataset(opts):
+def get_dataset(opts, train=True):
     """Function to get instance of SyntheticDataset given training options."""
-    return SyntheticDataset(opts.num_datasets_per_distr, opts.num_data_per_dataset)
+    if train:
+        return SyntheticDataset(opts.train_num_datasets_per_distr, opts.num_data_per_dataset)
+    else:
+        return SyntheticDataset(opts.test_num_datasets_per_distr, opts.num_data_per_dataset)
 
 
 class SyntheticDataset(Dataset):

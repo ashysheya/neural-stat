@@ -37,6 +37,7 @@ class NeuralStatistician(nn.Module):
         latent_variables_prior_dict = self.latent_decoder_network(outputs)
         outputs.update(latent_variables_prior_dict)
 
+        # get generated samples from decoder network
         observation_dict = self.observation_decoder_network(outputs)
         outputs.update(observation_dict)
 
@@ -51,7 +52,7 @@ class StatisticNetwork(nn.Module):
         self.masked = masked
         self.context_dim = context_dim
 
-        if experiment == "synthetic":
+        if experiment == 'synthetic':
             self.before_pooling = nn.Sequential(nn.Linear(1, 128),
                                                 nn.ReLU(True),
                                                 nn.Linear(128, 128),

@@ -64,7 +64,6 @@ def sample_from_normal(mean, logvar):
     :param logvar: (batch_size, z_dim): variance for latent variables
     :return: (batch_size, z_dim): samples from the following distributions using rep trick
     """
-
     noise = torch.FloatTensor(logvar.size()).normal_()
     if logvar.is_cuda:
         noise.cuda()
