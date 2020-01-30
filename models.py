@@ -19,22 +19,28 @@ class NeuralStatistician(nn.Module):
         self.observation_decoder_network = ObservationDecoderNetwork() # TODO: the same
 
     def forward(self, datasets):
-        outputs = {}
+        outputs = {'train_data': datasets}
 
         # get context mu, logsigma of size (batch_size, context_dim)
-        context_dict = self.statistic_network(datasets)
+        context_dict = self.statistic_network(outputs)
         outputs.update(context_dict)
 
-        outputs['samples_context'] = sample_from_normal(context_dict['means_context'],
-                                                        context_dict['logvars_context'])
-
         # get prior mu, logsigma for context vectors
-        context_prior_dict = self.context_prior(contexts=outputs['samples_context'])
+        context_prior_dict = self.context_prior(outputs)
         outputs.update(context_prior_dict)
 
+        # get variational approximations for latent z_1, .., z_n
+        latent_variables_dict = self.inference_network(outputs)
+        outputs.update(latent_variables_dict)
 
+        # get parameters for latent variables prior
+        latent_variables_prior_dict = self.latent_decoder_network(outputs)
+        outputs.update(latent_variables_prior_dict)
 
+        observation_dict = self.observation_decoder_network(outputs)
+        outputs.update(observation_dict)
 
+        return outputs
 
 
 class StatisticNetwork(nn.Module):
@@ -60,25 +66,30 @@ class StatisticNetwork(nn.Module):
                                                nn.ReLU(True),
                                                nn.Linear(128, context_dim*2))
 
-    def forward(self, datasets):
+    def forward(self, input_dict):
         """
-        :param datasets: torch.FloatTensor of size (batch_size, samples_per_dataset, sample_size)
-        :return mu, logsigma for each dataset
+        :param input_dict: dictionary that hold training data -
+        torch.FloatTensor of size (batch_size, samples_per_dataset, sample_size)
+        :return dictionary of mu, logsigma and context sample for each dataset
         """
-        data_size = datasets.Size()
+        datasets = input_dict['train_data']
+        data_size = datasets.size()
         features = self.before_pooling(datasets.view(data_size[0]*data_size[1], *data_size[2:]))
         features = features.view(*data_size).mean(dim=1)
         outputs = self.after_pooling(features)
+        samples = sample_from_normal(outputs[:, :self.context_dim],
+                                     outputs[:, self.context_dim:])
         return {'means_context': outputs[:, :self.context_dim],
-                'logvars_context': outputs[:, self.context_dim:]}
+                'logvars_context': outputs[:, self.context_dim:],
+                'samples_context': samples}
 
 
 class ContextPriorNetwork(nn.Module):
     """Prior for c, p(c)."""
-    def __init__(self, context_dim, type_prior="standard"):
+    def __init__(self, context_dim, type_prior='standard'):
         """
         :param context_dim: int, dimension of the context vector
-        :param type: either neural network-based or standard gaussian
+        :param type_prior: either neural network-based or standard gaussian
         """
         super(ContextPriorNetwork, self).__init__()
         self.context_dim = context_dim
@@ -86,13 +97,13 @@ class ContextPriorNetwork(nn.Module):
 
         # TODO: add neural-network based type for conditional variant
 
-    def forward(self, contexts=None, labels=None):
+    def forward(self, input_dict):
         """
-        :param contexts: (batch_size, context_dim)
-        :return:
+        :param input_dict: dict that labels and context for required for prior
+        :return: dict of means and log variance for prior
         """
-        # TODO: whether are created on cuda?
-        if self.type_prior == "standard":
+        if self.type_prior == 'standard':
+            contexts = input_dict['samples_context']
             means, logvars = torch.zeros_like(contexts), torch.zeros_like(contexts)
             if contexts.is_cuda:
                 means.cuda()
@@ -117,7 +128,7 @@ class InferenceNetwork(nn.Module):
         self.x_dim = x_dim
         input_dim = self.context_dim + self.x_dim
         self.model = nn.ModuleList()
-        if experiment == "standard":
+        if experiment == 'standard':
             for i in range(self.num_stochastic_layers):
                 self.model += [nn.Sequential(nn.Linear(input_dim, 128),
                                              nn.Linear(128, 128),
@@ -125,11 +136,15 @@ class InferenceNetwork(nn.Module):
                                              nn.Linear(128, z_dim*2))]
                 input_dim = self.context_dim + self.z_dim + self.x_dim
 
-    def forward(self, context, datasets):
+    def forward(self, input_dict):
         """
-        :param context: (batch_size, context_dim) context for each dataset in batch
-        :param datasets: (batch_size, num_datapoints_per_dataset, sample_size) batch of datasets
+        :param input_dict: dictionary that has
+        - context: (batch_size, context_dim) context for each dataset in batch
+        - train data: (batch_size, num_datapoints_per_dataset, sample_size) batch of datasets
+        :return: dictionary of lists for means, log variances and samples for each stochastic layer
         """
+        context = input_dict['samples_context']
+        datasets = input_dict['train_data']
         context_expanded = context[:, None].expand(-1, datasets.size()[1], -1).view(-1, self.context_dim)
         datasets_raveled = datasets.view(-1, self.x_dim)
         current_input = torch.cat([context_expanded, datasets_raveled], dim=1)
@@ -154,10 +169,20 @@ class InferenceNetwork(nn.Module):
 class LatentDecoderNetwork(nn.Module):
     """Prior network p(z_1, ..., z_n|c)."""
     #TODO: has the same structure as InferenceNetwork
-    pass
+    def __init__(self):
+        pass
+    def forward(self, input_dict):
+        # given context and samples of z_1, ..., z_{n-1} should return a dictionary with
+        # parameters mu, log variance for each stochastic layer.
+        pass
 
 
 class ObservationDecoderNetwork(nn.Module):
     """Network to model p(x|c, z_1, ..., Z_n)."""
     #TODO: network that firstly concatenates z_1, ..., z_n, c to produce mu, sigma for x. Returns my_x, sigma_x
-    pass
+    def __init__(self):
+        pass
+    def forward(self, input_dict):
+        # given sampled context and sampled latent z_i, should return parameters
+        # of the distribution for x.
+        pass
