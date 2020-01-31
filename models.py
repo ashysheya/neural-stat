@@ -15,8 +15,10 @@ class NeuralStatistician(nn.Module):
         self.context_prior = ContextPriorNetwork(opts.context_dim)
         self.inference_network = InferenceNetwork(opts.experiment, opts.num_stochastic_layers,
                                                   opts.z_dim, opts.context_dim, opts.x_dim)
-        self.latent_decoder_network = LatentDecoderNetwork() # TODO: insert valid initialization
-        self.observation_decoder_network = ObservationDecoderNetwork() # TODO: the same
+        self.latent_decoder_network = LatentDecoderNetwork(opts.experiment, opts.num_stochastic_layers,
+                                                           opts.z_dim, opts.context_dim)
+        self.observation_decoder_network = ObservationDecoderNetwork(opts.experiment, opts.num_stochastic_layers,
+                                                                     opts.z_dim, opts.context_dim, opts.x_dim)
 
     def forward(self, datasets):
         outputs = {'train_data': datasets}
@@ -225,7 +227,7 @@ class LatentDecoderNetwork(nn.Module):
         return outputs
 
 class ObservationDecoderNetwork(nn.Module):
-    """Network to model p(x|c, z_1, ..., Z_n)."""
+    """Network to model p(x|c, z_1, ..., z_n)."""
     # network that firstly concatenates z_1, ..., z_n, c to produce mu, sigma for x. Returns mu_x, sigma_x
     def __init__(self, experiment, num_stochastic_layers, z_dim, context_dim, x_dim):
         """
@@ -242,13 +244,15 @@ class ObservationDecoderNetwork(nn.Module):
         self.x_dim = x_dim
 
         input_dim = num_stochastic_layers*z_dim + context_dim
-        self.model = nn.Sequential(nn.Linear(input_dim, 128),
-                                           nn.ReLU(True),
-                                           nn.Linear(128, 128),
-                                           nn.ReLU(True),
-                                           nn.Linear(128, 128),
-                                           nn.ReLU(True),
-                                           nn.Linear(128, x_dim * 2))
+
+        if experiment == 'synthetic':
+            self.model = nn.Sequential(nn.Linear(input_dim, 128),
+                                               nn.ReLU(True),
+                                               nn.Linear(128, 128),
+                                               nn.ReLU(True),
+                                               nn.Linear(128, 128),
+                                               nn.ReLU(True),
+                                               nn.Linear(128, x_dim * 2))
 
     # TODO: Implement forward
     def forward(self, input_dict):
