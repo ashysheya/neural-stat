@@ -130,6 +130,7 @@ class InferenceNetwork(nn.Module):
         self.x_dim = x_dim
         input_dim = self.context_dim + self.x_dim
         self.model = nn.ModuleList()
+
         if experiment == 'standard':
             for i in range(self.num_stochastic_layers):
                 self.model += [nn.Sequential(nn.Linear(input_dim, 128),
@@ -184,6 +185,7 @@ class LatentDecoderNetwork(nn.Module):
         self.context_dim = context_dim
         input_dim = self.context_dim
         self.model = nn.ModuleList()
+
         if experiment == 'standard':
             for i in range(self.num_stochastic_layers):
                 self.model += [nn.Sequential(nn.Linear(input_dim, 128),
@@ -222,9 +224,31 @@ class LatentDecoderNetwork(nn.Module):
 
 class ObservationDecoderNetwork(nn.Module):
     """Network to model p(x|c, z_1, ..., Z_n)."""
-    #TODO: network that firstly concatenates z_1, ..., z_n, c to produce mu, sigma for x. Returns my_x, sigma_x
-    def __init__(self):
-        pass
+    # network that firstly concatenates z_1, ..., z_n, c to produce mu, sigma for x. Returns mu_x, sigma_x
+    def __init__(self, experiment, num_stochastic_layers, z_dim, context_dim, x_dim):
+        """
+        :param num_stochastic_layers: number of stochastic layers in the model
+        :param z_dim: dimension of each stochastic layer
+        :param context_dim: dimension of c
+        :param x_dim: dimension of x
+        """
+        super(ObservationDecoderNetwork, self).__init__()
+        self.experiment = experiment
+        self.num_stochastic_layers = num_stochastic_layers
+        self.z_dim = z_dim
+        self.context_dim = context_dim
+        self.x_dim = x_dim
+
+        input_dim = num_stochastic_layers*z_dim + context_dim
+        self.model = nn.Sequential(nn.Linear(input_dim, 128),
+                                           nn.ReLU(True),
+                                           nn.Linear(128, 128),
+                                           nn.ReLU(True),
+                                           nn.Linear(128, 128),
+                                           nn.ReLU(True),
+                                           nn.Linear(128, x_dim * 2))
+
+    # TODO: Implement forward
     def forward(self, input_dict):
         # given sampled context and sampled latent z_i, should return parameters
         # of the distribution for x.
