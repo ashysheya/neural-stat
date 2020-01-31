@@ -260,7 +260,6 @@ class ObservationDecoderNetwork(nn.Module):
         """
         Check here - input_dict['samples_latent_z'] has dimensions (n_stochastic_layer, batch_size, z_dim)
         input_dict['samples_context'] has size (batch_size, context_dim)
-        What size do we want our input?
         """
         context = input_dict['samples_context']
         latent_z = input_dict['samples_latent_z']  # z samples from InferenceNetwork
