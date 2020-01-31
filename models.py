@@ -204,7 +204,6 @@ class LatentDecoderNetwork(nn.Module):
         :return: dictionary of lists for means, log variances and samples for each stochastic layer
         """
         context = input_dict['samples_context']
-
         current_input = context
         outputs = {'means_latent_z': [],
                    'logvars_latent_z': [],
