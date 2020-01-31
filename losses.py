@@ -31,10 +31,10 @@ class KLDivergence(nn.Module):
         return (kl_value_z + kl_value_context).mean()
 
     @staticmethod
-    def calculate_kl(logvar_prior, logvar, mu, mu_prior, EPS=1e-5):
+    def calculate_kl(logvar_prior, logvar, mu, mu_prior, eps=1e-5):
         kl_val = 0.5 * logvar_prior - 0.5 * logvar
         kl_val += (torch.exp(logvar) + (mu - mu_prior) ** 2) / 2 / (
-            torch.exp(logvar_prior) + EPS) - 0.5
+            torch.exp(logvar_prior) + eps) - 0.5
         return kl_val.sum(dim=-1)
 
 
