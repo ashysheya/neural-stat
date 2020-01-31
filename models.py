@@ -12,7 +12,7 @@ class NeuralStatistician(nn.Module):
     def __init__(self, opts):
         super(NeuralStatistician, self).__init__()
         self.statistic_network = StatisticNetwork(opts.experiment, opts.context_dim, opts.masked)
-        self.context_prior = ContextPriorNetwork(opts.context_dim)
+        self.context_prior = ContextPriorNetwork(opts.context_dim, opts.type_prior)
         self.inference_network = InferenceNetwork(opts.experiment, opts.num_stochastic_layers,
                                                   opts.z_dim, opts.context_dim, opts.x_dim)
         self.latent_decoder_network = LatentDecoderNetwork(opts.experiment, opts.num_stochastic_layers,

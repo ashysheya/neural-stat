@@ -1,3 +1,4 @@
+import torch
 from torch.utils.data import Dataset
 from utils import generate_1d_datasets
 
@@ -25,4 +26,4 @@ class SyntheticDataset(Dataset):
         return len(self.datasets)
 
     def __getitem__(self, idx):
-        return self.datasets[idx], self.targets[idx]
+        return torch.FloatTensor(self.datasets[idx]), self.targets[idx]
