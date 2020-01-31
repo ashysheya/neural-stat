@@ -75,9 +75,9 @@ class StatisticNetwork(nn.Module):
         """
         datasets = input_dict['train_data']
         data_size = datasets.size()
-        features = self.before_pooling(datasets.view(data_size[0]*data_size[1], *data_size[2:]))
-        features = features.view(*data_size).mean(dim=1)
-        outputs = self.after_pooling(features)
+        prestat_vector = self.before_pooling(datasets.view(data_size[0]*data_size[1], *data_size[2:]))
+        prestat_vector = prestat_vector.view(*data_size).mean(dim=1)
+        outputs = self.after_pooling(prestat_vector)
         samples = sample_from_normal(outputs[:, :self.context_dim],
                                      outputs[:, self.context_dim:])
         return {'means_context': outputs[:, :self.context_dim],
@@ -119,6 +119,7 @@ class InferenceNetwork(nn.Module):
         """
         :param num_stochastic_layers: number of stochastic layers in the model
         :param z_dim: dimension of each stochastic layer
+        :param context_dim: dimension of c
         :param x_dim: dimension of x
         """
         super(InferenceNetwork, self).__init__()
@@ -135,6 +136,7 @@ class InferenceNetwork(nn.Module):
                                              nn.Linear(128, 128),
                                              nn.Linear(128, 128),
                                              nn.Linear(128, z_dim*2))]
+                # The following stochastic layers also take previous stochastic layer as input
                 input_dim = self.context_dim + self.z_dim + self.x_dim
 
     def forward(self, input_dict):
@@ -168,15 +170,55 @@ class InferenceNetwork(nn.Module):
 
 
 class LatentDecoderNetwork(nn.Module):
-    """Prior network p(z_1, ..., z_n|c)."""
-    #TODO: has the same structure as InferenceNetwork
-    def __init__(self):
-        pass
+    """Latent prior network p(z_1, ..., z_n|c)."""
+    def __init__(self, experiment, num_stochastic_layers, z_dim, context_dim):
+        """
+        :param num_stochastic_layers: number of stochastic layers in the model
+        :param z_dim: dimension of each stochastic layer
+        :param context_dim: dimension of c
+        """
+        super(LatentDecoderNetwork, self).__init__()
+        self.num_stochastic_layers = num_stochastic_layers
+        self.z_dim = z_dim
+        self.experiment = experiment
+        self.context_dim = context_dim
+        input_dim = self.context_dim
+        self.model = nn.ModuleList()
+        if experiment == 'standard':
+            for i in range(self.num_stochastic_layers):
+                self.model += [nn.Sequential(nn.Linear(input_dim, 128),
+                                             nn.Linear(128, 128),
+                                             nn.Linear(128, 128),
+                                             nn.Linear(128, z_dim*2))]
+                input_dim = self.context_dim + self.z_dim
+
     def forward(self, input_dict):
         # given context and samples of z_1, ..., z_{n-1} should return a dictionary with
         # parameters mu, log variance for each stochastic layer.
-        pass
+        """
+        :param input_dict: dictionary that has
+        - context: (batch_size, context_dim) context for each dataset in batch
+        - train data: (batch_size, num_datapoints_per_dataset, sample_size) batch of datasets
+        :return: dictionary of lists for means, log variances and samples for each stochastic layer
+        """
+        context = input_dict['samples_context']
 
+        current_input = context
+        outputs = {'means_latent_z': [],
+                   'logvars_latent_z': [],
+                   'samples_latent_z': []}
+
+        for module in self.model:
+            current_output = module.forward(current_input)
+            means = current_output[:, :self.z_dim]
+            logvars = current_output[:, self.z_dim:]
+            samples = sample_from_normal(means, logvars)
+            current_input = torch.cat([context, samples], dim=1)
+            outputs['means_latent_z'] += [means]
+            outputs['logvars_latent_z'] += [logvars]
+            outputs['samples_latent_z'] += [samples]
+
+        return outputs
 
 class ObservationDecoderNetwork(nn.Module):
     """Network to model p(x|c, z_1, ..., Z_n)."""
