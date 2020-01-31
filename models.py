@@ -204,7 +204,10 @@ class LatentDecoderNetwork(nn.Module):
         :return: dictionary of lists for means, log variances and samples for each stochastic layer
         """
         context = input_dict['samples_context']
-        current_input = context
+        datasets = input_dict['train_data']  # Only used to get the number of datapoints per dataset
+        context_expanded = context[:, None].expand(-1, datasets.size()[1], -1).view(-1, self.context_dim)
+
+        current_input = context_expanded
         outputs = {'means_latent_z': [],
                    'logvars_latent_z': [],
                    'samples_latent_z': []}
