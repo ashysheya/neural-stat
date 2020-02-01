@@ -23,23 +23,23 @@ class NeuralStatistician(nn.Module):
     def forward(self, datasets):
         outputs = {'train_data': datasets}
 
-        # get context mu, logsigma of size (batch_size, context_dim)
+        # get context mu, logsigma of size (batch_size, context_dim): q(c|D)
         context_dict = self.statistic_network(outputs)
         outputs.update(context_dict)
 
-        # get prior mu, logsigma for context vectors
+        # get prior mu, logsigma for context vectors: p(c)
         context_prior_dict = self.context_prior(outputs)
         outputs.update(context_prior_dict)
 
-        # get variational approximations for latent z_1, .., z_L
+        # get variational approximations for latent z_1, .., z_L: q(z_1, .., z_L|c, x)
         latent_variables_dict = self.inference_network(outputs)
         outputs.update(latent_variables_dict)
 
-        # get parameters for latent variables prior
+        # get parameters for latent variables prior: p(z_1, .., z_L|c)
         latent_variables_prior_dict = self.latent_decoder_network(outputs)
         outputs.update(latent_variables_prior_dict)
 
-        # get generated samples from decoder network
+        # get generated samples from decoder network: p(x|z_1, .., z_L, c)
         observation_dict = self.observation_decoder_network(outputs)
         outputs.update(observation_dict)
 
@@ -106,6 +106,14 @@ class ContextPriorNetwork(nn.Module):
         
         # (Yuxin) question: prior p(c) is chosen to be a spherical Gaussian with zero mean and unit variance?
         # my understanding would be samples = sample_from_normal(0,I) rather than using network
+
+        # ^ (Victor) Yes that's the case (see forward function below) - we are setting
+        # means, logvars = torch.zeros_like(contexts), torch.zeros_like(contexts), which essentially implies that your
+        # means will be 0 and variance exp(zero)=1 --> spherical Gaussian with zero mean and unit variance. It's then
+        # used to calculate the C_D term in equation (9), by looking at the KL divergence between our prior and the
+        # statistic network - essentially regularising the statistic network to remain "close" to the prior.
+        # The neural network option allows us to use a variant to spherical Gaussian, where now the prior is learned
+        # through a NN.
 
 
     def forward(self, input_dict):
@@ -294,19 +302,6 @@ class ObservationDecoderNetwork(nn.Module):
         inputs = torch.cat([context_expanded] + latent_z, dim=1)
 
         outputs = self.model(inputs)
-
-        # n_stochastic_layer = latent_z.size()[0]
-        # z_dim = latent_z.size()[2]
-        #
-        # latent_z_cat = latent_z[0, :, :]
-        # # If more than 1 z, concatenate all latent variables
-        # for i in range(1, n_stochastic_layer):
-        #     latent_z_i = latent_z[i, :, :]
-        #     latent_z_cat = torch.cat([latent_z_cat, latent_z_i], dim=1)
-        #
-        # latent_z_raveled = latent_z_cat.view(-1, n_stochastic_layer*z_dim)
-        # outputs = self.model(torch.cat([latent_z_raveled, context], dim=1))
-
 
         return {'means_x': outputs[:, :self.x_dim],
                 'logvars_x': outputs[:, self.x_dim:]}
