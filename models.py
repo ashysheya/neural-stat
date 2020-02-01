@@ -226,7 +226,8 @@ class LatentDecoderNetwork(nn.Module):
 
         current_input = context_expanded
         outputs = {'means_latent_z_prior': [],
-                   'logvars_latent_z_prior': []}
+                   'logvars_latent_z_prior': [],
+                   'samples_latent_z_prior': []}
 
         for i, module in enumerate(self.model):
             current_output = module.forward(current_input)
@@ -234,6 +235,8 @@ class LatentDecoderNetwork(nn.Module):
             logvars = current_output[:, self.z_dim:]
             outputs['means_latent_z_prior'] += [means]
             outputs['logvars_latent_z_prior'] += [logvars]
+            samples = sample_from_normal(means, logvars)
+            outputs['samples_latent_z_prior'] += [samples]
             if i < len(self.model) - 1:
                 current_input = torch.cat([context_expanded, samples_latent_z[i]], dim=1)
         return outputs
@@ -241,7 +244,7 @@ class LatentDecoderNetwork(nn.Module):
 
 class ObservationDecoderNetwork(nn.Module):
     """
-    Network to model p(x|c, z_1, ..., z_n).
+    Network to model p(x|c, z_1, ..., z_L).
     Network that firstly concatenates z_1, ..., z_L, c to produce mu, sigma for x.
     Returns mu_x, sigma_x
     """
@@ -280,8 +283,13 @@ class ObservationDecoderNetwork(nn.Module):
         What size do we want our input?
         """
         context_expanded = input_dict['samples_context_expanded']
-        # z samples from InferenceNetwork
-        latent_z = input_dict['samples_latent_z']
+        ## z samples from InferenceNetwork
+        #latent_z = input_dict['samples_latent_z']
+
+        # (Yuxin) z should be sampled from latent decoder network without using x
+        # see paper Appendix A algorithm 2
+        latent_z = input_dict['samples_latent_z_prior']
+        
 
         inputs = torch.cat([context_expanded] + latent_z, dim=1)
 
