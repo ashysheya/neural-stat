@@ -290,15 +290,14 @@ class ObservationDecoderNetwork(nn.Module):
         input_dict['samples_context'] has size (batch_size, context_dim)
         What size do we want our input?
         """
-        context_expanded = input_dict['samples_context_expanded']
-        ## z samples from InferenceNetwork
-        #latent_z = input_dict['samples_latent_z']
-
         # (Yuxin) z should be sampled from latent decoder network without using x
         # see paper Appendix A algorithm 2
-        latent_z = input_dict['samples_latent_z_prior']
-        
+        # ^ (Victor) Algorithm 2 is for generating data. When training the network, we need to use the x's from the
+        # inference network (in a similar way as a "normal" variational autoencoder would).
 
+        context_expanded = input_dict['samples_context_expanded']
+        ## z samples from InferenceNetwork
+        latent_z = input_dict['samples_latent_z']
         inputs = torch.cat([context_expanded] + latent_z, dim=1)
 
         outputs = self.model(inputs)
