@@ -1,6 +1,7 @@
 import argparse
 import importlib
 import torch
+import tqdm
 import torch.optim as optim
 from torch.utils.data import DataLoader
 from models import get_model
@@ -51,8 +52,8 @@ parser.add_argument('--x_dim', type=int, default=1, help='dimension of input')
 
 # Logging options
 parser.add_argument('--tensorboard', action='store_false', help='whether to use tensorboard')
-parser.add_argument('--log_dir', type='str', default='logs')
-parser.add_argument('--save_dir', type='str', default='model_params')
+parser.add_argument('--log_dir', type=str, default='logs')
+parser.add_argument('--save_dir', type=str, default='model_params')
 parser.add_argument('--save_freq', type=int, default=20)
 
 
@@ -66,12 +67,12 @@ train_dataloader = DataLoader(train_dataset, batch_size=opts.batch_size, shuffle
 test_dataset = dataset_module.get_dataset(opts, train=False)
 test_dataloader = DataLoader(test_dataset, batch_size=opts.batch_size, shuffle=True, num_workers=10)
 
-model = get_model(opts)
+model = get_model(opts).cuda()
 loss_dict = get_loss(opts)
 logger = get_logger(opts)
 optimizer = optim.Adam(model.parameters(), lr=opts.lr, betas=(opts.beta1, 0.999))
 
-for epoch in range(opts.num_epochs):
+for epoch in tqdm.tqdm(range(opts.num_epochs)):
     for data, targets in train_dataloader:
         data = data.cuda()
         targets = targets.cuda()
@@ -85,7 +86,7 @@ for epoch in range(opts.num_epochs):
             losses[key] = loss_dict[key].forward(output_dict)
             losses['sum'] += losses[key]
 
-        losses['sum'].backwards()
+        losses['sum'].backward()
         optimizer.step()
 
         logger.log_data(output_dict, losses)

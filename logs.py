@@ -45,7 +45,6 @@ class Logger:
             with open(f'{self.log_dir}/{self.experiment_name}', 'wb') as f:
                 pickle.dump(self.losses_dict, f)
 
-    @staticmethod
-    def save_model(model, model_name):
+    def save_model(self, model, model_name):
         torch.save(model.state_dict(),
                    f'{self.save_dir}/{self.experiment_name}/{model_name}')

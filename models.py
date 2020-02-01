@@ -14,11 +14,11 @@ class NeuralStatistician(nn.Module):
         self.statistic_network = StatisticNetwork(opts.experiment, opts.context_dim, opts.masked)
         self.context_prior = ContextPriorNetwork(opts.context_dim, opts.type_prior)
         self.inference_network = InferenceNetwork(opts.experiment, opts.num_stochastic_layers,
-                                                  opts.z_dim, opts.context_dim, opts.x_dim)
-        self.latent_decoder_network = LatentDecoderNetwork(opts.experiment, opts.num_stochastic_layers,
-                                                           opts.z_dim, opts.context_dim)
-        self.observation_decoder_network = ObservationDecoderNetwork(opts.experiment, opts.num_stochastic_layers,
-                                                                     opts.z_dim, opts.context_dim, opts.x_dim)
+            opts.z_dim, opts.context_dim, opts.x_dim)
+        self.latent_decoder_network = LatentDecoderNetwork(opts.experiment, 
+            opts.num_stochastic_layers, opts.z_dim, opts.context_dim)
+        self.observation_decoder_network = ObservationDecoderNetwork(opts.experiment, 
+            opts.num_stochastic_layers, opts.z_dim, opts.context_dim, opts.x_dim)
 
     def forward(self, datasets):
         outputs = {'train_data': datasets}
@@ -77,14 +77,18 @@ class StatisticNetwork(nn.Module):
         """
         datasets = input_dict['train_data']
         data_size = datasets.size()
-        prestat_vector = self.before_pooling(datasets.view(data_size[0]*data_size[1], *data_size[2:]))
-        prestat_vector = prestat_vector.view(*data_size).mean(dim=1)
+        prestat_vector = self.before_pooling(datasets.view(data_size[0]*data_size[1], 
+            *data_size[2:]))
+        prestat_vector = prestat_vector.view(data_size[0], data_size[1], -1).mean(dim=1)
         outputs = self.after_pooling(prestat_vector)
         samples = sample_from_normal(outputs[:, :self.context_dim],
                                      outputs[:, self.context_dim:])
+        samples_expanded = samples[:, None].expand(-1, datasets.size()[1], -1).contiguous()
+        samples_expanded = samples_expanded.view(-1, self.context_dim)
         return {'means_context': outputs[:, :self.context_dim],
                 'logvars_context': outputs[:, self.context_dim:],
-                'samples_context': samples}
+                'samples_context': samples, 
+                'samples_context_expanded': samples_expanded}
 
 
 class ContextPriorNetwork(nn.Module):
@@ -109,8 +113,8 @@ class ContextPriorNetwork(nn.Module):
             contexts = input_dict['samples_context']
             means, logvars = torch.zeros_like(contexts), torch.zeros_like(contexts)
             if contexts.is_cuda:
-                means.cuda()
-                logvars.cuda()
+                means = means.cuda()
+                logvars = logvars.cuda()
             return {'means_context_prior': means,
                     'logvars_context_prior': logvars}
 
@@ -133,7 +137,7 @@ class InferenceNetwork(nn.Module):
         input_dim = self.context_dim + self.x_dim
         self.model = nn.ModuleList()
 
-        if experiment == 'standard':
+        if experiment == 'synthetic':
             for i in range(self.num_stochastic_layers):
                 self.model += [nn.Sequential(nn.Linear(input_dim, 128),
                                              nn.Linear(128, 128),
@@ -150,9 +154,8 @@ class InferenceNetwork(nn.Module):
         - train data: (batch_size, num_datapoints_per_dataset, sample_size) batch of datasets
         :return: dictionary of lists for means, log variances and samples for each stochastic layer
         """
-        context = input_dict['samples_context']
+        context_expanded = input_dict['samples_context_expanded']
         datasets = input_dict['train_data']
-        context_expanded = context[:, None].expand(-1, datasets.size()[1], -1).view(-1, self.context_dim)
         datasets_raveled = datasets.view(-1, self.x_dim)
         # Input has dimension (batch_size*num_datapoints_per_dataset, sample_size+context_dim)
         current_input = torch.cat([context_expanded, datasets_raveled], dim=1)
@@ -166,8 +169,9 @@ class InferenceNetwork(nn.Module):
             means = current_output[:, :self.z_dim]
             logvars = current_output[:, self.z_dim:]
             samples = sample_from_normal(means, logvars)
-            current_input = torch.cat([context_expanded, datasets_raveled, samples], dim=1)    # p(z_i|z_{i+1},c) follows normal distribution
+            # p(z_i|z_{i+1},c) follows normal distribution
             outputs['means_latent_z'] += [means]
+            current_input = torch.cat([context_expanded, datasets_raveled, samples], dim=1)    
             outputs['logvars_latent_z'] += [logvars]
             outputs['samples_latent_z'] += [samples]
 
@@ -190,44 +194,47 @@ class LatentDecoderNetwork(nn.Module):
         input_dim = self.context_dim
         self.model = nn.ModuleList()
 
-        if experiment == 'standard':
+        if experiment == 'synthetic':
             for i in range(self.num_stochastic_layers):
                 self.model += [nn.Sequential(nn.Linear(input_dim, 128),
                                              nn.Linear(128, 128),
                                              nn.Linear(128, 128),
                                              nn.Linear(128, z_dim*2))]
-                # TODO: needs to update for z_L
                 input_dim = self.context_dim + self.z_dim
 
     def forward(self, input_dict):
-        # given context and samples of z_1, ..., z_{L-1} should return a dictionary with
-        # parameters mu, log variance for each stochastic layer.
         """
+        Given context and samples of z_1, ..., z_{L-1} should return a dictionary with
+        parameters mu, log variance for each stochastic layer.
         :param input_dict: dictionary that has
         - context: (batch_size, context_dim) context for each dataset in batch
         - train data: (batch_size, num_datapoints_per_dataset, sample_size) batch of datasets
         :return: dictionary of lists for means, log variances and samples for each stochastic layer
         """
-        context = input_dict['samples_context']
-        datasets = input_dict['train_data']  # Only used to get the number of datapoints per dataset
-        context_expanded = context[:, None].expand(-1, datasets.size()[1], -1).view(-1, self.context_dim)
+        context_expanded = input_dict['samples_context_expanded']
+        samples_latent_z = input_dict['samples_latent_z']
 
         current_input = context_expanded
-        outputs = {'means_latent_decoder_z': [],
-                   'logvars_latent_decoder_z': []}
+        outputs = {'means_latent_z_prior': [],
+                   'logvars_latent_z_prior': []}
 
-        for module in self.model:
+        for i, module in enumerate(self.model):
             current_output = module.forward(current_input)
             means = current_output[:, :self.z_dim]
             logvars = current_output[:, self.z_dim:]
-            current_input = torch.cat([context, samples], dim=1)
-            outputs['means_latent_decoder_z'] += [means]
-            outputs['logvars_latent_decoder_z'] += [logvars]
+            outputs['means_latent_z_prior'] += [means]
+            outputs['logvars_latent_z_prior'] += [logvars]
+            if i < len(self.model) - 1:
+                current_input = torch.cat([context_expanded, samples_latent_z[i]], dim=1)
         return outputs
 
+
 class ObservationDecoderNetwork(nn.Module):
-    """Network to model p(x|c, z_1, ..., z_n)."""
-    # network that firstly concatenates z_1, ..., z_L, c to produce mu, sigma for x. Returns mu_x, sigma_x
+    """
+    Network to model p(x|c, z_1, ..., z_n).
+    Network that firstly concatenates z_1, ..., z_L, c to produce mu, sigma for x.
+    Returns mu_x, sigma_x
+    """
     def __init__(self, experiment, num_stochastic_layers, z_dim, context_dim, x_dim):
         """
         :param num_stochastic_layers: number of stochastic layers in the model
@@ -246,37 +253,42 @@ class ObservationDecoderNetwork(nn.Module):
 
         if experiment == 'synthetic':
             self.model = nn.Sequential(nn.Linear(input_dim, 128),
-                                               nn.ReLU(True),
-                                               nn.Linear(128, 128),
-                                               nn.ReLU(True),
-                                               nn.Linear(128, 128),
-                                               nn.ReLU(True),
-                                               nn.Linear(128, x_dim * 2))
+                                       nn.ReLU(True),
+                                       nn.Linear(128, 128),
+                                       nn.ReLU(True),
+                                       nn.Linear(128, 128),
+                                       nn.ReLU(True),
+                                       nn.Linear(128, x_dim * 2))
 
     def forward(self, input_dict):
-        # given sampled context and sampled latent z_i, should return parameters
-        # of the distribution for x.
         """
-        Check here - input_dict['samples_latent_z'] has dimensions (n_stochastic_layer, batch_size, z_dim)
+        Given sampled context and sampled latent z_i, should return parameters
+        of the distribution for x.
+        Check here - input_dict['samples_latent_z']
+         has dimensions (n_stochastic_layer, batch_size, z_dim)
         input_dict['samples_context'] has size (batch_size, context_dim)
         What size do we want our input?
         """
-        context = input_dict['samples_context']
-        latent_z = input_dict['samples_latent_z']  # z samples from InferenceNetwork
+        context_expanded = input_dict['samples_context_expanded']
+        # z samples from InferenceNetwork
+        latent_z = input_dict['samples_latent_z']
 
-        n_stochastic_layer = latent_z.size()[0]
-        z_dim = latent_z.size()[2]
+        inputs = torch.cat([context_expanded] + latent_z, dim=1)
 
-        latent_z_cat = latent_z[0, :, :]
-        # If more than 1 z, concatenate all latent variables
-        for i in range(1, n_stochastic_layer):
-            latent_z_i = latent_z[i, :, :]
-            latent_z_cat = torch.cat([latent_z_cat, latent_z_i], dim=1)
+        outputs = self.model(inputs)
 
-        latent_z_raveled = latent_z_cat.view(-1, n_stochastic_layer*z_dim)
-        outputs = self.model(torch.cat([latent_z_raveled, context], dim=1))
-        samples = sample_from_normal(outputs[:, :self.x_dim],
-                                     outputs[:, self.x_dim:])
+        # n_stochastic_layer = latent_z.size()[0]
+        # z_dim = latent_z.size()[2]
+        #
+        # latent_z_cat = latent_z[0, :, :]
+        # # If more than 1 z, concatenate all latent variables
+        # for i in range(1, n_stochastic_layer):
+        #     latent_z_i = latent_z[i, :, :]
+        #     latent_z_cat = torch.cat([latent_z_cat, latent_z_i], dim=1)
+        #
+        # latent_z_raveled = latent_z_cat.view(-1, n_stochastic_layer*z_dim)
+        # outputs = self.model(torch.cat([latent_z_raveled, context], dim=1))
+
+
         return {'means_x': outputs[:, :self.x_dim],
-                'logvars_x': outputs[:, self.x_dim:],
-                'samples_x': samples}
+                'logvars_x': outputs[:, self.x_dim:]}

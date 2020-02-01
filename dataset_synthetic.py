@@ -1,4 +1,5 @@
 import torch
+import numpy as np
 from torch.utils.data import Dataset
 from utils import generate_1d_datasets
 
@@ -19,8 +20,15 @@ class SyntheticDataset(Dataset):
         :param num_datasets_per_distr: int, number of datasets per distribution to generate
         :param num_data_per_dataset: int, number of datapoints per dataset
         """
-        self.datasets, self.targets = generate_1d_datasets(num_datasets_per_distr,
-                                                           num_data_per_dataset)
+        self.datasets, targets = generate_1d_datasets(num_datasets_per_distr,
+            num_data_per_dataset)
+        self.datasets = self.datasets[:, :, None]
+        targets = np.array(targets)
+        # Convert strings to numeric labels
+        self.targets = np.zeros_like(targets, dtype=np.int)
+        self.idx_dict = {0: 'exponential', 1: 'gaussian', 2: 'uniform', 3: 'laplace'}
+        for key in self.idx_dict:
+            self.targets[targets == self.idx_dict[key]] = key
 
     def __len__(self):
         return len(self.datasets)

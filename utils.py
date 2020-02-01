@@ -49,7 +49,7 @@ def generate_1d_datasets(num_datasets_per_distr=2500, num_data_per_dataset=200):
         params_dict = preprocess_distribution_parameters(distribution[0],
             means[num_datasets_per_distr*i: num_datasets_per_distr*(i + 1)],
             variances[num_datasets_per_distr*i: num_datasets_per_distr*(i + 1)])
-        dataset[num_datasets_per_distr*i: num_datasets_per_distr*(i + 1)] = distribution[0](
+        dataset[num_datasets_per_distr*i: num_datasets_per_distr*(i + 1)] = distribution[1](
             size=(num_data_per_dataset, num_datasets_per_distr), **params_dict).T
 
         target_distributions += [distribution[0]]*num_datasets_per_distr
@@ -66,5 +66,5 @@ def sample_from_normal(mean, logvar):
     """
     noise = torch.FloatTensor(logvar.size()).normal_()
     if logvar.is_cuda:
-        noise.cuda()
+        noise = noise.cuda()
     return mean + torch.exp(0.5*logvar)*noise
