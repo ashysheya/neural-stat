@@ -116,7 +116,7 @@ class ContextPriorNetwork(nn.Module):
 
 
 class InferenceNetwork(nn.Module):
-    """Variational approximation q(z_1, ..., z_n|c, x)."""
+    """Variational approximation q(z_1, ..., z_L|c, x)."""
     def __init__(self, experiment, num_stochastic_layers, z_dim, context_dim, x_dim):
         """
         :param num_stochastic_layers: number of stochastic layers in the model
@@ -126,7 +126,7 @@ class InferenceNetwork(nn.Module):
         """
         super(InferenceNetwork, self).__init__()
         self.num_stochastic_layers = num_stochastic_layers
-        self.z_dim = z_dim
+        self.z_dim = z_dim    # dimension of each of z_i
         self.experiment = experiment
         self.context_dim = context_dim
         self.x_dim = x_dim
@@ -140,6 +140,7 @@ class InferenceNetwork(nn.Module):
                                              nn.Linear(128, 128),
                                              nn.Linear(128, z_dim*2))]
                 # The following stochastic layers also take previous stochastic layer as input
+                # TODO: what about z_L? 
                 input_dim = self.context_dim + self.z_dim + self.x_dim
 
     def forward(self, input_dict):
@@ -165,7 +166,7 @@ class InferenceNetwork(nn.Module):
             means = current_output[:, :self.z_dim]
             logvars = current_output[:, self.z_dim:]
             samples = sample_from_normal(means, logvars)
-            current_input = torch.cat([context_expanded, datasets_raveled, samples], dim=1)
+            current_input = torch.cat([context_expanded, datasets_raveled, samples], dim=1)    # p(z_i|z_{i+1},c) follows normal distribution
             outputs['means_latent_z'] += [means]
             outputs['logvars_latent_z'] += [logvars]
             outputs['samples_latent_z'] += [samples]
@@ -195,10 +196,11 @@ class LatentDecoderNetwork(nn.Module):
                                              nn.Linear(128, 128),
                                              nn.Linear(128, 128),
                                              nn.Linear(128, z_dim*2))]
+                # TODO: needs to update for z_L
                 input_dim = self.context_dim + self.z_dim
 
     def forward(self, input_dict):
-        # given context and samples of z_1, ..., z_{n-1} should return a dictionary with
+        # given context and samples of z_1, ..., z_{L-1} should return a dictionary with
         # parameters mu, log variance for each stochastic layer.
         """
         :param input_dict: dictionary that has
@@ -211,24 +213,21 @@ class LatentDecoderNetwork(nn.Module):
         context_expanded = context[:, None].expand(-1, datasets.size()[1], -1).view(-1, self.context_dim)
 
         current_input = context_expanded
-        outputs = {'means_latent_z': [],
-                   'logvars_latent_z': [],
-                   'samples_latent_z': []}
+        outputs = {'means_latent_decoder_z': [],
+                   'logvars_latent_decoder_z': []}
 
         for module in self.model:
             current_output = module.forward(current_input)
             means = current_output[:, :self.z_dim]
             logvars = current_output[:, self.z_dim:]
-            samples = sample_from_normal(means, logvars)  # size (batch_size, z_dim)
             current_input = torch.cat([context, samples], dim=1)
-            outputs['means_latent_z'] += [means]
-            outputs['logvars_latent_z'] += [logvars]
-            outputs['samples_latent_z'] += [samples]
+            outputs['means_latent_decoder_z'] += [means]
+            outputs['logvars_latent_decoder_z'] += [logvars]
         return outputs
 
 class ObservationDecoderNetwork(nn.Module):
     """Network to model p(x|c, z_1, ..., z_n)."""
-    # network that firstly concatenates z_1, ..., z_n, c to produce mu, sigma for x. Returns mu_x, sigma_x
+    # network that firstly concatenates z_1, ..., z_L, c to produce mu, sigma for x. Returns mu_x, sigma_x
     def __init__(self, experiment, num_stochastic_layers, z_dim, context_dim, x_dim):
         """
         :param num_stochastic_layers: number of stochastic layers in the model
@@ -260,6 +259,7 @@ class ObservationDecoderNetwork(nn.Module):
         """
         Check here - input_dict['samples_latent_z'] has dimensions (n_stochastic_layer, batch_size, z_dim)
         input_dict['samples_context'] has size (batch_size, context_dim)
+        What size do we want our input?
         """
         context = input_dict['samples_context']
         latent_z = input_dict['samples_latent_z']  # z samples from InferenceNetwork
