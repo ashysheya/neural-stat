@@ -31,7 +31,7 @@ class NeuralStatistician(nn.Module):
         context_prior_dict = self.context_prior(outputs)
         outputs.update(context_prior_dict)
 
-        # get variational approximations for latent z_1, .., z_n
+        # get variational approximations for latent z_1, .., z_L
         latent_variables_dict = self.inference_network(outputs)
         outputs.update(latent_variables_dict)
 
@@ -103,6 +103,10 @@ class ContextPriorNetwork(nn.Module):
         self.type_prior = type_prior
 
         # TODO: add neural-network based type for conditional variant
+        
+        # (Yuxin) question: prior p(c) is chosen to be a spherical Gaussian with zero mean and unit variance?
+        # my understanding would be samples = sample_from_normal(0,I) rather than using network
+
 
     def forward(self, input_dict):
         """
@@ -140,8 +144,11 @@ class InferenceNetwork(nn.Module):
         if experiment == 'synthetic':
             for i in range(self.num_stochastic_layers):
                 self.model += [nn.Sequential(nn.Linear(input_dim, 128),
+                                             nn.ReLU(True),
                                              nn.Linear(128, 128),
+                                             nn.ReLU(True),
                                              nn.Linear(128, 128),
+                                             nn.ReLU(True),
                                              nn.Linear(128, z_dim*2))]
                 # The following stochastic layers also take previous stochastic layer as input
                 # TODO: what about z_L? 
@@ -197,8 +204,11 @@ class LatentDecoderNetwork(nn.Module):
         if experiment == 'synthetic':
             for i in range(self.num_stochastic_layers):
                 self.model += [nn.Sequential(nn.Linear(input_dim, 128),
+                                             nn.ReLU(True),
                                              nn.Linear(128, 128),
+                                             nn.ReLU(True),
                                              nn.Linear(128, 128),
+                                             nn.ReLU(True),
                                              nn.Linear(128, z_dim*2))]
                 input_dim = self.context_dim + self.z_dim
 
