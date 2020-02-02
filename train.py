@@ -7,6 +7,7 @@ from torch.utils.data import DataLoader
 from models import get_model
 from losses import get_loss
 from logs import get_logger
+from plot_synthetic import scatter_context
 
 parser = argparse.ArgumentParser(description='Arguments for training procedure')
 
@@ -92,6 +93,7 @@ for epoch in tqdm.tqdm(range(opts.num_epochs)):
         logger.log_data(output_dict, losses)
 
     with torch.no_grad():
+        means_context = {'data': [], 'labels': []}  # For plotting contexts
         for data, targets in test_dataloader:
             data = data.cuda()
             targets = targets.cuda()
@@ -101,6 +103,16 @@ for epoch in tqdm.tqdm(range(opts.num_epochs)):
             losses = {'NLL': loss_dict['NLL'].forward(output_dict)}
 
             logger.log_data(output_dict, losses, split='test')
+
+            # If synthetic experiment, save mean contexts to be plotted later, along with targets for colour labelling
+            if opts.experiment == 'synthetic':
+                means_context['data'] += [output_dict['means_context'].cpu().numpy()]  # (batch_size, context_dim)
+                means_context['labels'] += [targets.cpu().numpy()]
+
+        # Plot if synthetic experiment
+        if opts.experiment == 'synthetic' and opts.context_dim == 3:
+            scatter_context(means_context)
+
     if epoch%opts.save_freq == 0:
         logger.save_model(model, str(epoch))
 
