@@ -17,8 +17,8 @@ def scatter_context(context_dict, save_path = None):
     target_labels = ["exponential", "gaussian", "uniform", "laplace"]
     colours = ["r", "g", "b", "k"]
 
-    for batch_i in range(means_context.shape[0]):
-        for context_i in range(means_context.shape[1]):
+    for batch_i in range(means_context[0].shape[0]):
+        for context_i in range(means_context[0].shape[1]):
             ax.scatter(means_context[batch_i][context_i][:, 0],
                        means_context[batch_i][context_i][:, 1],
                        means_context[batch_i][context_i][:, 2],
