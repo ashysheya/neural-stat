@@ -3,6 +3,7 @@ import importlib
 import torch
 import os
 import tqdm
+import numpy as np
 import torch.optim as optim
 from torch.utils.data import DataLoader
 from models import get_model
@@ -123,6 +124,8 @@ for epoch in tqdm.tqdm(range(opts.num_epochs)):
         if opts.experiment == 'synthetic' and opts.context_dim == 3:
             # path = '/figures/' + time_stamp + '-{}.pdf'.format(epoch + 1)
             os.makedirs(f'{opts.fig_dir}/{opts.experiment}_{time_stamp}', exist_ok=True)
+            print(means_context['data'][66])
+            print(means_context['labels'][66])
             scatter_context(means_context, savepath = f'{opts.fig_dir}/{opts.experiment}_{time_stamp}/{epoch}')
 
 logger.save_model(model, 'last')
