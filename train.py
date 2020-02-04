@@ -1,6 +1,7 @@
 import argparse
 import importlib
 import torch
+import os
 import tqdm
 import torch.optim as optim
 from torch.utils.data import DataLoader
@@ -58,6 +59,7 @@ parser.add_argument('--x_dim', type=int, default=1, help='dimension of input')
 parser.add_argument('--tensorboard', action='store_false', help='whether to use tensorboard')
 parser.add_argument('--log_dir', type=str, default='logs')
 parser.add_argument('--save_dir', type=str, default='model_params')
+parser.add_argument('--fig_dir', type=str, default='fig')
 parser.add_argument('--save_freq', type=int, default=20)
 
 
@@ -114,15 +116,13 @@ for epoch in tqdm.tqdm(range(opts.num_epochs)):
                 means_context['data'] += [output_dict['means_context'].cpu().numpy()]  # (batch_size, context_dim)
                 means_context['labels'] += [targets.cpu().numpy()]
         
-        # Plot if synthetic experiment
-        if opts.experiment == 'synthetic' and opts.context_dim == 3:
-            path = '/figures/' + time_stamp + '-{}.pdf'.format(epoch + 1)
-            
-            scatter_context(means_context, savepath = path) # still problem with it
-            # scatter_context(means_context)
-        
-
     if epoch%opts.save_freq == 0:
         logger.save_model(model, str(epoch))
+	
+        # Save plot if synthetic experiment
+        if opts.experiment == 'synthetic' and opts.context_dim == 3:
+            # path = '/figures/' + time_stamp + '-{}.pdf'.format(epoch + 1)
+            os.makedirs(f'{opts.fig_dir}/{opts.experiment}_{time_stamp}', exist_ok=True)
+            scatter_context(means_context, savepath = f'{opts.fig_dir}/{opts.experiment}_{time_stamp}/{epoch}')
 
 logger.save_model(model, 'last')
