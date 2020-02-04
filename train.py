@@ -9,6 +9,9 @@ from losses import get_loss
 from logs import get_logger
 from plot_synthetic import scatter_context
 
+import time
+time_stamp = time.strftime("%d-%m-%Y-%H:%M:%S")
+
 parser = argparse.ArgumentParser(description='Arguments for training procedure')
 
 # Experiment options
@@ -46,7 +49,7 @@ parser.add_argument('--type_prior', type=str, default='standard',
 parser.add_argument('--num_stochastic_layers', type=int, default=1,
     help='number of stochastic layers')
 
-parser.add_argument('--z_dim', type=int, default=128,
+parser.add_argument('--z_dim', type=int, default=32,
     help='dimension of latent variables')
 
 parser.add_argument('--x_dim', type=int, default=1, help='dimension of input')
@@ -59,6 +62,8 @@ parser.add_argument('--save_freq', type=int, default=20)
 
 
 opts = parser.parse_args()
+
+
 
 #import dataset module
 dataset_module = importlib.import_module('_'.join(['dataset', opts.experiment]))
@@ -108,10 +113,14 @@ for epoch in tqdm.tqdm(range(opts.num_epochs)):
             if opts.experiment == 'synthetic':
                 means_context['data'] += [output_dict['means_context'].cpu().numpy()]  # (batch_size, context_dim)
                 means_context['labels'] += [targets.cpu().numpy()]
-
+        
         # Plot if synthetic experiment
         if opts.experiment == 'synthetic' and opts.context_dim == 3:
-            scatter_context(means_context)
+            path = '/figures/' + time_stamp + '-{}.pdf'.format(epoch + 1)
+            
+            scatter_context(means_context, savepath = path) # still problem with it
+            # scatter_context(means_context)
+        
 
     if epoch%opts.save_freq == 0:
         logger.save_model(model, str(epoch))
