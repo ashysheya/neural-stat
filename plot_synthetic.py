@@ -11,12 +11,14 @@ def scatter_context(context_dict, savepath = None):
     fig = plt.figure()
     ax = fig.add_subplot(111, projection='3d')
 
-    contexts = np.array(context_dict['data'])       # shape: (67,)
-    labels = np.array(context_dict['labels'])       # shape: (67,)
 
-    # context[0] has size (batch_size, context_dim), labels[0] have size (batch_size, 1)
-    print(contexts[0].shape)    # shape: (30,3)
-    print(labels[0].shape)      # shape: (30,)
+    # contexts have size (number_of_iterations,) so only the last one is used for final results
+    contexts = np.array(context_dict['data'])[-1]
+    labels = np.array(context_dict['labels'])[-1]
+
+    ## context[0] has size (batch_size, context_dim), labels[0] have size (batch_size, 1)
+    #print(contexts[0].shape)    # shape: (30,3)
+    #print(labels[0].shape)      # shape: (30,)
 
     distributions = [
             'exponential',
@@ -38,11 +40,10 @@ def scatter_context(context_dict, savepath = None):
         'darkviolet'
     ]
 
-    for batch_i in range(contexts.shape[0]):
-        for label, i in enumerate(ix):
-            ax.scatter(contexts[batch_i][i][:, 0], contexts[batch_i][i][:, 1], contexts[batch_i][i][:, 2],
-                       label=distributions[label].title(),
-                       color=colors[label])
+    for label, i in enumerate(ix):
+        ax.scatter(contexts[i][:, 0], contexts[i][:, 1], contexts[i][:, 2],
+                   label=distributions[label].title(),
+                   color=colors[label])
 
         
     plt.tick_params(axis='both', which='both', bottom='off', top='off', labelbottom='off',
