@@ -21,7 +21,8 @@ class SyntheticDataset(Dataset):
         :param num_data_per_dataset: int, number of datapoints per dataset
         """
         gen_data = generate_1d_datasets(num_datasets_per_distr, num_data_per_dataset)
-        self.datasets = gen_data[0][:, :, None]
+        self.datasets = gen_data[0]
+        print(self.datasets.shape)
         targets = gen_data[1]
         self.means = gen_data[2]
         self.variances = gen_data[3]
