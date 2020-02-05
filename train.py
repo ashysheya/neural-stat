@@ -3,14 +3,11 @@ import importlib
 import torch
 import tqdm
 import torch.optim as optim
+import numpy as np
 from torch.utils.data import DataLoader
 from models import get_model
 from losses import get_loss
 from logs import get_logger
-from plot_synthetic import scatter_context
-
-import time
-time_stamp = time.strftime("%d-%m-%Y-%H:%M:%S")
 
 parser = argparse.ArgumentParser(description='Arguments for training procedure')
 
@@ -28,7 +25,7 @@ parser.add_argument('--test_num_datasets_per_distr', type=int, default=500,
 parser.add_argument('--num_data_per_dataset', type=int, default=200,
     help='number of samples per dataset')
 
-parser.add_argument('--batch_size', type=int, default=30, help='size of batch')
+parser.add_argument('--batch_size', type=int, default=16, help='size of batch')
 
 # Optimization options
 parser.add_argument('--lr', type=float, default=1e-4, help='learning rate for optimizer')
@@ -40,7 +37,7 @@ parser.add_argument('--num_epochs', type=int, default=100, help='number of train
 # Architecture options
 parser.add_argument('--context_dim', type=int, default=3, help='context dimension')
 
-parser.add_argument('--masked', action='store_false',
+parser.add_argument('--masked', action='store_true',
     help='whether to use masking during training')
 
 parser.add_argument('--type_prior', type=str, default='standard',
@@ -55,74 +52,85 @@ parser.add_argument('--z_dim', type=int, default=32,
 parser.add_argument('--x_dim', type=int, default=1, help='dimension of input')
 
 # Logging options
-parser.add_argument('--tensorboard', action='store_false', help='whether to use tensorboard')
+parser.add_argument('--tensorboard', action='store_true', help='whether to use tensorboard')
 parser.add_argument('--log_dir', type=str, default='logs')
 parser.add_argument('--save_dir', type=str, default='model_params')
-parser.add_argument('--save_freq', type=int, default=20)
-
+parser.add_argument('--save_freq', type=int, default=1)
 
 opts = parser.parse_args()
-
-
 
 #import dataset module
 dataset_module = importlib.import_module('_'.join(['dataset', opts.experiment]))
 
 train_dataset = dataset_module.get_dataset(opts, train=True)
-train_dataloader = DataLoader(train_dataset, batch_size=opts.batch_size, shuffle=True, num_workers=10)
+train_dataloader = DataLoader(train_dataset, batch_size=opts.batch_size, 
+    shuffle=True, num_workers=10)
 test_dataset = dataset_module.get_dataset(opts, train=False)
-test_dataloader = DataLoader(test_dataset, batch_size=opts.batch_size, shuffle=True, num_workers=10)
+test_dataloader = DataLoader(test_dataset, batch_size=opts.batch_size, 
+    shuffle=True, num_workers=10)
 
 model = get_model(opts).cuda()
 loss_dict = get_loss(opts)
 logger = get_logger(opts)
 optimizer = optim.Adam(model.parameters(), lr=opts.lr, betas=(opts.beta1, 0.999))
 
+alpha = 0
+
 for epoch in tqdm.tqdm(range(opts.num_epochs)):
-    for data, targets in train_dataloader:
-        data = data.cuda()
-        targets = targets.cuda()
+    for data_dict in train_dataloader:
+        data = data_dict['datasets'].cuda()
 
         optimizer.zero_grad()
 
         output_dict = model.forward(data)
-        losses = {'sum': 0}
+
+        losses = {}
 
         for key in loss_dict:
             losses[key] = loss_dict[key].forward(output_dict)
-            losses['sum'] += losses[key]
+            
+        losses['sum'] = (1 + alpha)*losses['NLL'] + losses['KL']/(1 + alpha)
 
         losses['sum'].backward()
+
         optimizer.step()
 
         logger.log_data(output_dict, losses)
 
     with torch.no_grad():
-        means_context = {'data': [], 'labels': []}  # For plotting contexts
-        for data, targets in test_dataloader:
-            data = data.cuda()
-            targets = targets.cuda()
 
+        if opts.experiment == 'synthetic':
+            contexts_test = []
+            labels_test = []
+            means_test = []
+            variances_test = []
+
+        for data_dict in test_dataloader:
+
+            data = data_dict['datasets'].cuda()
             output_dict = model.forward(data)
-
             losses = {'NLL': loss_dict['NLL'].forward(output_dict)}
 
             logger.log_data(output_dict, losses, split='test')
 
-            # If synthetic experiment, save mean contexts to be plotted later, along with targets for colour labelling
             if opts.experiment == 'synthetic':
-                means_context['data'] += [output_dict['means_context'].cpu().numpy()]  # (batch_size, context_dim)
-                means_context['labels'] += [targets.cpu().numpy()]
-        
-        # Plot if synthetic experiment
-        if opts.experiment == 'synthetic' and opts.context_dim == 3:
-            path = '/figures/' + time_stamp + '-{}.pdf'.format(epoch + 1)
-            
-            scatter_context(means_context, savepath = path) # still problem with it
-            # scatter_context(means_context)
-        
+
+                labels_test.append(data_dict['targets'].numpy())
+                means_test.append(data_dict['means'].numpy())
+                variances_test.append(data_dict['variances'].numpy())
+                contexts_test.append(output_dict['means_context'].cpu().numpy())
+    
+    if opts.experiment == 'synthetic':    
+        contexts_test = np.concatenate(contexts_test, axis=0)
+        labels_test = np.concatenate(labels_test, axis=0)
+        means_test = np.concatenate(means_test, axis=0)
+        variances_test = np.concatenate(variances_test, axis=0)
 
     if epoch%opts.save_freq == 0:
+        if opts.experiment == 'synthetic':
+            logger.log_embedding(contexts_test, labels_test, means_test, variances_test)
         logger.save_model(model, str(epoch))
 
+if opts.experiment == 'synthetic':
+    logger.log_embedding(contexts_test, labels_test, means_test, variances_test)
 logger.save_model(model, 'last')

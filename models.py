@@ -20,6 +20,8 @@ class NeuralStatistician(nn.Module):
         self.observation_decoder_network = ObservationDecoderNetwork(opts.experiment, 
             opts.num_stochastic_layers, opts.z_dim, opts.context_dim, opts.x_dim)
 
+        self.apply(self.init_weights)
+
     def forward(self, datasets):
         outputs = {'train_data': datasets}
 
@@ -44,6 +46,12 @@ class NeuralStatistician(nn.Module):
         outputs.update(observation_dict)
 
         return outputs
+
+    @staticmethod
+    def init_weights(m):
+        if type(m) == nn.Linear:
+            nn.init.xavier_normal_(m.weight.data, gain=nn.init.calculate_gain('relu'))
+            nn.init.constant_(m.bias.data, 0)
 
 
 class StatisticNetwork(nn.Module):
@@ -81,12 +89,13 @@ class StatisticNetwork(nn.Module):
             *data_size[2:]))
         prestat_vector = prestat_vector.view(data_size[0], data_size[1], -1).mean(dim=1)
         outputs = self.after_pooling(prestat_vector)
-        samples = sample_from_normal(outputs[:, :self.context_dim],
-                                     outputs[:, self.context_dim:])
+        means = outputs[:, :self.context_dim]
+        logvars = torch.clamp(outputs[:, self.context_dim:], -10, 10)
+        samples = sample_from_normal(means, logvars)
         samples_expanded = samples[:, None].expand(-1, datasets.size()[1], -1).contiguous()
         samples_expanded = samples_expanded.view(-1, self.context_dim)
-        return {'means_context': outputs[:, :self.context_dim],
-                'logvars_context': outputs[:, self.context_dim:],
+        return {'means_context': means,
+                'logvars_context': logvars,
                 'samples_context': samples, 
                 'samples_context_expanded': samples_expanded}
 
@@ -103,18 +112,6 @@ class ContextPriorNetwork(nn.Module):
         self.type_prior = type_prior
 
         # TODO: add neural-network based type for conditional variant
-        
-        # (Yuxin) question: prior p(c) is chosen to be a spherical Gaussian with zero mean and unit variance?
-        # my understanding would be samples = sample_from_normal(0,I) rather than using network
-
-        # ^ (Victor) Yes that's the case (see forward function below) - we are setting
-        # means, logvars = torch.zeros_like(contexts), torch.zeros_like(contexts), which essentially implies that your
-        # means will be 0 and variance exp(zero)=1 --> spherical Gaussian with zero mean and unit variance. It's then
-        # used to calculate the C_D term in equation (9), by looking at the KL divergence between our prior and the
-        # statistic network - essentially regularising the statistic network to remain "close" to the prior.
-        # The neural network option allows us to use a variant to spherical Gaussian, where now the prior is learned
-        # through a NN.
-
 
     def forward(self, input_dict):
         """
@@ -182,11 +179,11 @@ class InferenceNetwork(nn.Module):
         for module in self.model:
             current_output = module.forward(current_input)
             means = current_output[:, :self.z_dim]
-            logvars = current_output[:, self.z_dim:]
+            logvars = torch.clamp(current_output[:, self.z_dim:], -10, 10)
             samples = sample_from_normal(means, logvars)
             # p(z_i|z_{i+1},c) follows normal distribution
-            outputs['means_latent_z'] += [means]
-            current_input = torch.cat([context_expanded, datasets_raveled, samples], dim=1)    
+            current_input = torch.cat([context_expanded, datasets_raveled, samples], dim=1)  
+            outputs['means_latent_z'] += [means]  
             outputs['logvars_latent_z'] += [logvars]
             outputs['samples_latent_z'] += [samples]
 
@@ -239,11 +236,10 @@ class LatentDecoderNetwork(nn.Module):
         for i, module in enumerate(self.model):
             current_output = module.forward(current_input)
             means = current_output[:, :self.z_dim]
-            logvars = current_output[:, self.z_dim:]
+            logvars = torch.clamp(current_output[:, self.z_dim:], -10, 10)
             outputs['means_latent_z_prior'] += [means]
             outputs['logvars_latent_z_prior'] += [logvars]
-            if i < len(self.model) - 1:
-                current_input = torch.cat([context_expanded, samples_latent_z[i]], dim=1)
+            current_input = torch.cat([context_expanded, samples_latent_z[i]], dim=1)
         return outputs
 
 
@@ -295,4 +291,4 @@ class ObservationDecoderNetwork(nn.Module):
         outputs = self.model(inputs)
 
         return {'means_x': outputs[:, :self.x_dim],
-                'logvars_x': outputs[:, self.x_dim:]}
+                'logvars_x': torch.clamp(outputs[:, self.x_dim:], -10, 10)}
