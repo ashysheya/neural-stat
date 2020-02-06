@@ -79,6 +79,7 @@ def generate_distribution(distribution):
 
     elif distribution == 'exponential':
         samples = np.random.exponential(1, (200, 1))
+        ## We change the distribution of the samples to ensure that they have the specified mean and variance
         return augment_distribution(samples, m, v), m, v
 
     elif distribution == 'laplace':
@@ -87,6 +88,7 @@ def generate_distribution(distribution):
 
     elif distribution == 'uniform':
         samples = np.random.uniform(-1, 1, (200, 1))
+        ## We change the distribution of the samples to ensure that they have the specified mean and variance
         return augment_distribution(samples, m, v), m, v
 
 
@@ -111,11 +113,13 @@ def generate_1d_datasets(num_datasets_per_distr=2500, num_data_per_dataset=200):
     for i in range(num_datasets_per_distr*4):
         distribution = np.random.choice(distributions)
 
-        x, m, v = generate_distribution(distribution)
+        x, m, v = generate_distribution(distribution) ## x has size (200, 1)--> samples for D, m and v are single-valued
 
         sets[i, :, :] = x
         labels.append(distribution)
         means.append(m)
         variances.append(v)
 
+    ## sets has dimensions (4*num_datasets_per_distr, num_data_per_dataset, 1), and all others have size
+    ## (4*num_datasets_per_distr, ) -- e.g. (4*2500, ) for training data and (4*500, ) for testing
     return sets, np.array(labels), np.array(means), np.array(variances)

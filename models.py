@@ -63,6 +63,8 @@ class StatisticNetwork(nn.Module):
         self.context_dim = context_dim
 
         if experiment == 'synthetic':
+            ## CHECK HERE
+            ## The 1 is for 1 dataset??
             self.before_pooling = nn.Sequential(nn.Linear(1, 128),
                                                 nn.ReLU(True),
                                                 nn.Linear(128, 128),
@@ -81,23 +83,41 @@ class StatisticNetwork(nn.Module):
         """
         :param input_dict: dictionary that hold training data -
         torch.FloatTensor of size (batch_size, samples_per_dataset, sample_size)
+        ## For synthetic data this is (16, 2000, 1) by default
         :return dictionary of mu, logsigma and context sample for each dataset
         """
         datasets = input_dict['train_data']
         data_size = datasets.size()
-        prestat_vector = self.before_pooling(datasets.view(data_size[0]*data_size[1], 
+        ## Pass all input vectors together: input to NN has size (batch_size*samples_per_dataset, vector_size)
+        ## Here the vector_size is 1, that's why the NN input is size 1. But if we put larger vectors (e.g. an image,
+        ## then this will need to be increased - to 28*28 for example.
+        prestat_vector = self.before_pooling(datasets.view(data_size[0]*data_size[1],
             *data_size[2:]))
+        ## The output prestat_vector is of size (16, 2000, 128).
+        ## Calculate encoding v: this takes the size (16, 2000, 128), and calculates the mean along dimension 1: i.e.
+        ## along the 2000 samples of a given dataset.
+        ## So prestat_vector is now of size (16, 1, 128)
         prestat_vector = prestat_vector.view(data_size[0], data_size[1], -1).mean(dim=1)
+        ## Output is of (16, size context_dim*2): it has the mean and logvar of the context for each batch
         outputs = self.after_pooling(prestat_vector)
         means = outputs[:, :self.context_dim]
+        ## Limit the logvar to reasonable values
         logvars = torch.clamp(outputs[:, self.context_dim:], -10, 10)
+        ## Sample the context from the mean and logvar we have just found. It has size (batch_size, c_dim)
         samples = sample_from_normal(means, logvars)
+        ## Expand the samples: take the samples for each batch, and copy it for each sample in the dataset. To do so,
+        ## one dimension (dim 1) is added to the samples, making it (16, 1, 3), and the values are copied along dim 1
+        ## to make it (16, 200, 3) --> this way, the context vector is returned for each input data!
+        ## CHECK HERE -- how does contiguous work??
         samples_expanded = samples[:, None].expand(-1, datasets.size()[1], -1).contiguous()
+        ## Finally, make samples_expanded of size (16*200, 3)
         samples_expanded = samples_expanded.view(-1, self.context_dim)
         return {'means_context': means,
                 'logvars_context': logvars,
                 'samples_context': samples, 
                 'samples_context_expanded': samples_expanded}
+        ## Dict with dimensions means(16, 3), logvars(16, 3), samples(16, 3)-->1 for each D and
+        ## samples_expanded(16*200, 3)-->1 for each x (the same copied along each x in each D)
 
 
 class ContextPriorNetwork(nn.Module):
@@ -119,13 +139,16 @@ class ContextPriorNetwork(nn.Module):
         :return: dict of means and log variance for prior
         """
         if self.type_prior == 'standard':
+            ## The samples_context in the input dict has size (16, 3)--> 1 context vector for each dataset in the batch
             contexts = input_dict['samples_context']
+            ## Prior is spherical: make prior mean zeros(16, 3) and logvar zeros(16, 3)-->var ones(16,3)
             means, logvars = torch.zeros_like(contexts), torch.zeros_like(contexts)
             if contexts.is_cuda:
                 means = means.cuda()
                 logvars = logvars.cuda()
             return {'means_context_prior': means,
                     'logvars_context_prior': logvars}
+            ## Dict with means_context_prior(16, 3) and logvars_context_prior(16, 3)
 
 
 class InferenceNetwork(nn.Module):
@@ -166,27 +189,40 @@ class InferenceNetwork(nn.Module):
         - train data: (batch_size, num_datapoints_per_dataset, sample_size) batch of datasets
         :return: dictionary of lists for means, log variances and samples for each stochastic layer
         """
+        ## samples_context_expanded have size (16*200, 3), i.e. (batch_size, num_datapoints_per_dataset, context_size)
         context_expanded = input_dict['samples_context_expanded']
+        ## datasets has size (16, 200, 1), i.e. (batch_size, num_datapoints_per_dataset, sample_size)
         datasets = input_dict['train_data']
+        ## Make datasets of size (16*200, 1)
         datasets_raveled = datasets.view(-1, self.x_dim)
         # Input has dimension (batch_size*num_datapoints_per_dataset, sample_size+context_dim)
+        ## Operation below concatenates the (16*200, 3) context samples with the (16*200, 1) samples to make the input
+        ## have size (16*200, 4)
         current_input = torch.cat([context_expanded, datasets_raveled], dim=1)
 
         outputs = {'means_latent_z': [],
                    'logvars_latent_z': [],
                    'samples_latent_z': []}
 
+        ## Iterate over each module in the model: the n_stochastic_layers different networks
         for module in self.model:
+            ## current_output has dim (16*200, z_dim*2)
             current_output = module.forward(current_input)
             means = current_output[:, :self.z_dim]
             logvars = torch.clamp(current_output[:, self.z_dim:], -10, 10)
+            ## samples has dim (16*200, z_dim)
             samples = sample_from_normal(means, logvars)
             # p(z_i|z_{i+1},c) follows normal distribution
-            current_input = torch.cat([context_expanded, datasets_raveled, samples], dim=1)  
-            outputs['means_latent_z'] += [means]  
+            ## For the next input, concatenate the previous input with the sample, to get an input of size
+            ## (16*200, context_dim+x_dim+z_dim)
+            current_input = torch.cat([context_expanded, datasets_raveled, samples], dim=1)
+            ## For each dictionary entry, add to the list the values for the current stochastic layer. Each entry added
+            ## has dimension (16*200, z_dim)
+            outputs['means_latent_z'] += [means]
             outputs['logvars_latent_z'] += [logvars]
             outputs['samples_latent_z'] += [samples]
-
+        ## At the end, each entry in the dictionary is a list of length n_stochastic_layers, with each element in the
+        ## list having dimension (16*200, z_dim)
         return outputs
 
 
@@ -226,13 +262,14 @@ class LatentDecoderNetwork(nn.Module):
         - train data: (batch_size, num_datapoints_per_dataset, sample_size) batch of datasets
         :return: dictionary of lists for means, log variances and samples for each stochastic layer
         """
-        context_expanded = input_dict['samples_context_expanded']
-        samples_latent_z = input_dict['samples_latent_z']
+        context_expanded = input_dict['samples_context_expanded'] ## Array of size (16*200, c_dim)
+        samples_latent_z = input_dict['samples_latent_z'] ## List of length n_stochastic layer, w/ elem. (16*200, z_dim)
 
-        current_input = context_expanded
+        current_input = context_expanded ## Input for first stochastic layer p(z|c) is just c
         outputs = {'means_latent_z_prior': [],
                    'logvars_latent_z_prior': []}
 
+        ## Comments are same as for the inference network above
         for i, module in enumerate(self.model):
             current_output = module.forward(current_input)
             means = current_output[:, :self.z_dim]
@@ -240,6 +277,8 @@ class LatentDecoderNetwork(nn.Module):
             outputs['means_latent_z_prior'] += [means]
             outputs['logvars_latent_z_prior'] += [logvars]
             current_input = torch.cat([context_expanded, samples_latent_z[i]], dim=1)
+        ## At the end, each entry in the dictionary is a list of length n_stochastic_layers, with each element in the
+        ## list having dimension (16*200, z_dim)
         return outputs
 
 
@@ -283,11 +322,15 @@ class ObservationDecoderNetwork(nn.Module):
         input_dict['samples_context'] has size (batch_size, context_dim)
         What size do we want our input?
         """
-        context_expanded = input_dict['samples_context_expanded']
-        ## z samples from InferenceNetwork
+        context_expanded = input_dict['samples_context_expanded'] ## samples_expanded has size (16*200, 3)
+        ## z samples from InferenceNetwork: list of length n_stochastic_layers, with each element in the
+        ## list having dimension (16*200, z_dim): so essentially it is [(16*200,z_dim), (16*200,z_dim), (16*200,z_dim)]
         latent_z = input_dict['samples_latent_z']
+        ## Make a list from the expanded context, and concatenate with the latent z, making the input of size
+        ## (16*200, context_dim + num_stochastic_layers*z_dim).
         inputs = torch.cat([context_expanded] + latent_z, dim=1)
 
+        ## Output has size (16*200, x_dim*2)
         outputs = self.model(inputs)
 
         return {'means_x': outputs[:, :self.x_dim],

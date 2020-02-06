@@ -48,6 +48,11 @@ class Logger:
         self.iterations[split] += 1
 
     def log_embedding(self, contexts, labels, means, variances):
+        #         contexts (500*4, 3)
+        #         labels (500*4, )
+        #         means (500*4, )
+        #         variances (500*4, )
+
         # Plot by distribution
         fig = plt.figure()
         ax = fig.add_subplot(111, projection='3d')
@@ -62,7 +67,9 @@ class Logger:
         idx_dict = {0: 'exponential', 1: 'gaussian', 2: 'uniform', 3: 'laplace'}
 
         for i, color in enumerate(colors):
+            ## Take indices of the labels for each distribution
             idxs = (labels == i)
+            ## Plot the context means
             ax.scatter(contexts[idxs, 0], contexts[idxs, 1], contexts[idxs, 2],
                 color=color, label=idx_dict[i])
 
@@ -81,6 +88,7 @@ class Logger:
             fig = plt.figure()
             ax = fig.add_subplot(111, projection='3d')
 
+            ## Plot all context means, and color them according to mean / variance.
             cax = ax.scatter(contexts[:, 0], contexts[:, 1], contexts[:, 2],
                              c=statistic)
             fig.colorbar(cax)
