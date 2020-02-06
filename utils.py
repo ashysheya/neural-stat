@@ -69,24 +69,24 @@ def sample_from_normal(mean, logvar):
         noise = noise.cuda()
     return mean + torch.exp(0.5*logvar)*noise
 
-def generate_distribution(distribution):
+def generate_distribution(distribution, num_data_per_dataset):
     m = np.random.uniform(-1, 1)
     v = np.random.uniform(0.5, 2)
 
     if distribution == 'gaussian':
-        samples = np.random.normal(m, v, (200, 1))
+        samples = np.random.normal(m, v, (num_data_per_dataset, 1))
         return samples, m, v
 
     elif distribution == 'exponential':
-        samples = np.random.exponential(1, (200, 1))
+        samples = np.random.exponential(1, (num_data_per_dataset, 1))
         return augment_distribution(samples, m, v), m, v
 
     elif distribution == 'laplace':
-        samples = np.random.laplace(m, v, (200, 1))
+        samples = np.random.laplace(m, v, (num_data_per_dataset, 1))
         return samples, m, v
 
     elif distribution == 'uniform':
-        samples = np.random.uniform(-1, 1, (200, 1))
+        samples = np.random.uniform(-1, 1, (num_data_per_dataset, 1))
         return augment_distribution(samples, m, v), m, v
 
 
@@ -99,7 +99,7 @@ def augment_distribution(samples, m, v):
         return aug_samples
 
 
-def generate_1d_datasets(num_datasets_per_distr=2500, num_data_per_dataset=200):
+def generate_1d_datasets(num_datasets_per_distr, num_data_per_dataset):
     sets = np.zeros((num_datasets_per_distr*4, num_data_per_dataset, 1),
                     dtype=np.float32)
     labels = []
@@ -111,7 +111,7 @@ def generate_1d_datasets(num_datasets_per_distr=2500, num_data_per_dataset=200):
     for i in range(num_datasets_per_distr*4):
         distribution = np.random.choice(distributions)
 
-        x, m, v = generate_distribution(distribution)
+        x, m, v = generate_distribution(distribution, num_data_per_dataset)
 
         sets[i, :, :] = x
         labels.append(distribution)

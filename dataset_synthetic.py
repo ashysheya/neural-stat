@@ -15,7 +15,7 @@ def get_dataset(opts, train=True):
 class SyntheticDataset(Dataset):
     """Dataset for 1d synthetic data experiment."""
 
-    def __init__(self, num_datasets_per_distr=2500, num_data_per_dataset=200):
+    def __init__(self, num_datasets_per_distr, num_data_per_dataset):
         """
         :param num_datasets_per_distr: int, number of datasets per distribution to generate
         :param num_data_per_dataset: int, number of datapoints per dataset
