@@ -83,20 +83,20 @@ class StatisticNetwork(nn.Module):
         """
         :param input_dict: dictionary that hold training data -
         torch.FloatTensor of size (batch_size, samples_per_dataset, sample_size)
-        ## For synthetic data this is (16, 2000, 1) by default
+        ## For synthetic data this is (16, 200, 1) by default
         :return dictionary of mu, logsigma and context sample for each dataset
         """
         datasets = input_dict['train_data']
         data_size = datasets.size()
         ## Pass all input vectors together: input to NN has size (batch_size*samples_per_dataset, vector_size)
-        ## Here the vector_size is 1, that's why the NN input is size 1. But if we put larger vectors (e.g. an image,
-        ## then this will need to be increased - to 28*28 for example.
+        ## Here the vector_size is 1, that's why the NN input is size 1 so the input has size (16*200, 1).
+        ## But if we put larger vectors (e.g. an image), then this will need to be increased - to 28*28 for example.
         prestat_vector = self.before_pooling(datasets.view(data_size[0]*data_size[1],
             *data_size[2:]))
-        ## The output prestat_vector is of size (16, 2000, 128).
-        ## Calculate encoding v: this takes the size (16, 2000, 128), and calculates the mean along dimension 1: i.e.
-        ## along the 2000 samples of a given dataset.
-        ## So prestat_vector is now of size (16, 1, 128)
+        ## The output prestat_vector is of size (16*200, 128).
+        ## Calculate encoding v: this takes the size (16, 200, 128), and calculates the mean along dimension 1: i.e.
+        ## along the 200 samples of a given dataset. So first we need to change the prestat_vector view from
+        ## (16*200, 128) to (16, 200, 128). After averaging, the encoding v is (16, 1, 128)
         prestat_vector = prestat_vector.view(data_size[0], data_size[1], -1).mean(dim=1)
         ## Output is of (16, size context_dim*2): it has the mean and logvar of the context for each batch
         outputs = self.after_pooling(prestat_vector)
