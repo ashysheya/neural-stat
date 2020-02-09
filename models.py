@@ -64,7 +64,8 @@ class StatisticNetwork(nn.Module):
 
         if experiment == 'synthetic':
             ## CHECK HERE
-            ## The 1 is for 1 dataset??
+            ## The 1 is for 1 dataset?? --> no: it's the dimension of the input vector. We will pass in every input of
+            ## every dataset at once.
             self.before_pooling = nn.Sequential(nn.Linear(1, 128),
                                                 nn.ReLU(True),
                                                 nn.Linear(128, 128),
