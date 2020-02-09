@@ -1,5 +1,6 @@
 import torch.nn as nn
 import torch
+import numpy as np
 from utils import sample_from_normal
 
 def get_model(opts):
@@ -11,6 +12,9 @@ class NeuralStatistician(nn.Module):
 
     def __init__(self, opts):
         super(NeuralStatistician, self).__init__()
+
+        if opts.experiment == "faces" or opts.experiment == "omniglot":
+            self.shared_encoder = SharedEncoder(opts.experiment)
         self.statistic_network = StatisticNetwork(opts.experiment, opts.context_dim, opts.masked)
         self.context_prior = ContextPriorNetwork(opts.context_dim, opts.type_prior)
         self.inference_network = InferenceNetwork(opts.experiment, opts.num_stochastic_layers,
@@ -49,10 +53,55 @@ class NeuralStatistician(nn.Module):
 
     @staticmethod
     def init_weights(m):
-        if type(m) == nn.Linear:
+        if type(m) == nn.Linear or type(m) == nn.Conv2d:
             nn.init.xavier_normal_(m.weight.data, gain=nn.init.calculate_gain('relu'))
             nn.init.constant_(m.bias.data, 0)
 
+class SharedEncoder(nn.Module):
+    """Shared Encoder x-->h"""
+    def __init__(self, experiment):
+        super(SharedEncoder, self).__init__()
+
+        if experiment == "faces":
+            self.model = nn.Sequential(nn.Conv2d(3, 32, kernel_size=3, padding=1, stride=1),
+                                       nn.ReLU(True),
+                                       nn.Conv2d(32, 32, kernel_size=3, padding=1, stride=1),
+                                       nn.ReLU(True),
+                                       nn.Conv2d(32, 32, kernel_size=3, padding=1, stride=2),
+                                       nn.ReLU(True),
+                                       # shape is now (-1, 32, 32, 32)
+                                       nn.Conv2d(32, 64, kernel_size=3, padding=1, stride=1),
+                                       nn.ReLU(True),
+                                       nn.Conv2d(64, 64, kernel_size=3, padding=1, stride=1),
+                                       nn.ReLU(True),
+                                       nn.Conv2d(64, 64, kernel_size=3, padding=1, stride=2),
+                                       nn.ReLU(True),
+                                       # shape is now (-1, 64, 16, 16)
+                                       nn.Conv2d(64, 128, kernel_size=3, padding=1, stride=1),
+                                       nn.ReLU(True),
+                                       nn.Conv2d(128, 128, kernel_size=3, padding=1, stride=1),
+                                       nn.ReLU(True),
+                                       nn.Conv2d(128, 128, kernel_size=3, padding=1, stride=2),
+                                       nn.ReLU(True),
+                                       # shape is now (-1, 128, 8, 8)
+                                       nn.Conv2d(128, 256, kernel_size=3, padding=1, stride=1),
+                                       nn.ReLU(True),
+                                       nn.Conv2d(256, 256, kernel_size=3, padding=1, stride=1),
+                                       nn.ReLU(True),
+                                       # shape is now (-1, 256, 4, 4)
+                                       nn.Conv2d(256, 256, kernel_size=3, padding=1, stride=2),
+                                       nn.ReLU(True))
+
+    def forward(self, input_dict):
+        datasets = input_dict['train_data']
+        data_size = datasets.size()  # Should be (batch_size, 5, 3, 64, 64)
+
+        # Pass x as (-1, 3, 64, 64), i.e. (batch_size*5, 3, 64, 64)
+        h = self.model(datasets.view(data_size[0]*data_size[1], *data_size[2:]))
+        # Reshape as (batch_size, num_data_per_dataset, 256, 4, 4)
+        h = h.view(-1, data_size[1], 256, 4, 4)
+
+        return {'encoded_data': h}
 
 class StatisticNetwork(nn.Module):
     """Variational approximation q(c|D)."""
@@ -63,9 +112,6 @@ class StatisticNetwork(nn.Module):
         self.context_dim = context_dim
 
         if experiment == 'synthetic':
-            ## CHECK HERE
-            ## The 1 is for 1 dataset?? --> no: it's the dimension of the input vector. We will pass in every input of
-            ## every dataset at once.
             self.before_pooling = nn.Sequential(nn.Linear(1, 128),
                                                 nn.ReLU(True),
                                                 nn.Linear(128, 128),
@@ -80,47 +126,59 @@ class StatisticNetwork(nn.Module):
                                                nn.ReLU(True),
                                                nn.Linear(128, context_dim*2))
 
+        elif experiment == "faces":
+            # Output of the shared encoder has 256 feature maps, each 4x4
+            self.before_pooling = nn.Sequential(nn.Linear(256*4*4, 1000),
+                                                nn.ReLU(True))
+            # Check here: unsure about hidden layer dim and number of FC layers. Also, in paper specifies LINEAR layers,
+            # but on repo used a non-linearity.
+            self.after_pooling = nn.Sequential(nn.Linear(1000, 1000),
+                                               nn.Linear(1000, context_dim*2))
+
     def forward(self, input_dict):
         """
-        :param input_dict: dictionary that hold training data -
-        torch.FloatTensor of size (batch_size, samples_per_dataset, sample_size)
+        :param input_dict: dictionary that hold training data / encoded data -
+        torch.FloatTensor of size (batch_size, samples_per_dataset, sample_dim)
         ## For synthetic data this is (16, 200, 1) by default
+        ## For faces data this is (16, 5, 256, 4, 4) after encoder
         :return dictionary of mu, logsigma and context sample for each dataset
         """
-        datasets = input_dict['train_data']
+        # If encoded data exists, take this - else take non-transformed input data
+        datasets = input_dict.get('encoded_data', 'train_data')
         data_size = datasets.size()
-        ## Pass all input vectors together: input to NN has size (batch_size*samples_per_dataset, vector_size)
-        ## Here the vector_size is 1, that's why the NN input is size 1 so the input has size (16*200, 1).
-        ## But if we put larger vectors (e.g. an image), then this will need to be increased - to 28*28 for example.
-        prestat_vector = self.before_pooling(datasets.view(data_size[0]*data_size[1],
-            *data_size[2:]))
-        ## The output prestat_vector is of size (16*200, 128).
-        ## Calculate encoding v: this takes the size (16, 200, 128), and calculates the mean along dimension 1: i.e.
-        ## along the 200 samples of a given dataset. So first we need to change the prestat_vector view from
-        ## (16*200, 128) to (16, 200, 128). After averaging, the encoding v is (16, 1, 128)
+        # Pass all input vectors together: input to NN has size (batch_size*n_samples_per_dataset, vector_size)
+        # For synthetic data the vector_size is 1, that's why the NN input is size 1 so the input has size (16*200, 1).
+        # For the faces dataset, the encoded input size is (batch_size, n_samples_per_dataset, 256, 4, 4), so need to
+        # unravel into (batch_size*n_samples_per_dataset, 256*4*4)
+        prestat_vector = self.before_pooling(datasets.view(data_size[0]*data_size[1], np.prod(data_size[2:])))
+        # The output prestat_vector is of size (16*200, 128) for synthetic data.
+        # Calculate encoding v: this takes the size (16, 200, 128), and calculates the mean along dimension 1: i.e.
+        # along the 200 samples of a given dataset. So first we need to change the prestat_vector view from
+        # (16*200, 128) to (16, 200, 128). After averaging, the encoding v is (16, 1, 128)
+        # Similarly for the faces dataset, need to change view from (16*5, 1000) to (16, 5, 1000) and average.
         prestat_vector = prestat_vector.view(data_size[0], data_size[1], -1).mean(dim=1)
-        ## Output is of (16, size context_dim*2): it has the mean and logvar of the context for each batch
+        # Output is of (16, size context_dim*2): it has the mean and logvar of the context for each batch
         outputs = self.after_pooling(prestat_vector)
         means = outputs[:, :self.context_dim]
-        ## Limit the logvar to reasonable values
+        # Limit the logvar to reasonable values
         logvars = torch.clamp(outputs[:, self.context_dim:], -10, 10)
-        ## Sample the context from the mean and logvar we have just found. It has size (batch_size, c_dim)
+        # Sample the context from the mean and logvar we have just found. It has size (batch_size, c_dim)
         samples = sample_from_normal(means, logvars)
-        ## Expand the samples: take the samples for each batch, and copy it for each sample in the dataset. To do so,
-        ## one dimension (dim 1) is added to the samples, making it (16, 1, 3), and the values are copied along dim 1
-        ## to make it (16, 200, 3) --> this way, the context vector is returned for each input data!
-        ## CHECK HERE -- how does contiguous work??
+        # Expand the samples: take the samples for each batch, and copy it for each sample in the dataset. To do so,
+        # one dimension (dim 1) is added to the samples, making it (16, 1, 3), and the values are copied along dim 1
+        # to make it (16, 200, 3) for synthetic data --> this way, the context vector is returned for each input data!
+        # CHECK HERE -- how does contiguous work??
         samples_expanded = samples[:, None].expand(-1, datasets.size()[1], -1).contiguous()
-        ## Finally, make samples_expanded of size (16*200, 3)
+        # Finally, make samples_expanded of size (16*200, 3) for synthetic data. For faces data, it is (16*5, 3)
         samples_expanded = samples_expanded.view(-1, self.context_dim)
         return {'means_context': means,
                 'logvars_context': logvars,
                 'samples_context': samples, 
                 'samples_context_expanded': samples_expanded}
-        ## Dict with dimensions means(16, 3), logvars(16, 3), samples(16, 3)-->1 for each D and
-        ## samples_expanded(16*200, 3)-->1 for each x (the same copied along each x in each D)
+        # Dict with dimensions means(16, 3), logvars(16, 3), samples(16, 3)-->1 for each D and
+        # samples_expanded(16*200, 3)-->1 for each x (the same copied along each x in each D)
 
-
+# TODO: Continue here
 class ContextPriorNetwork(nn.Module):
     """Prior for c, p(c)."""
     def __init__(self, context_dim, type_prior='standard'):
