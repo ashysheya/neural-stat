@@ -15,6 +15,8 @@ parser = argparse.ArgumentParser(description='Arguments for training procedure')
 parser.add_argument('--experiment', type=str, default='synthetic',
     help='options that tells what experiment to replicate: synthetic|mnist|omniglot|youtube')
 
+parser.add_argument('--nll', type=str, default='gaussian', help='type of loglikelihood')
+
 # Dataloaders options
 parser.add_argument('--train_num_datasets_per_distr', type=int, default=2500,
     help='number of training datasets per distribution for synthetic experiment')
@@ -27,12 +29,14 @@ parser.add_argument('--num_data_per_dataset', type=int, default=200,
 
 parser.add_argument('--batch_size', type=int, default=16, help='size of batch')
 
+parser.add_argument('--test_mnist', action='store_true', help='whether to test on mnist')
+
 # Optimization options
 parser.add_argument('--lr', type=float, default=1e-4, help='learning rate for optimizer')
 
 parser.add_argument('--beta1', type=float, default=0.9, help='beta1 for optimizer')
 
-parser.add_argument('--num_epochs', type=int, default=100, help='number of training epochs')
+parser.add_argument('--num_epochs', type=int, default=300, help='number of training epochs')
 
 # Architecture options
 parser.add_argument('--context_dim', type=int, default=3, help='context dimension')
@@ -51,6 +55,8 @@ parser.add_argument('--z_dim', type=int, default=32,
 
 parser.add_argument('--x_dim', type=int, default=1, help='dimension of input')
 
+parser.add_argument('--h_dim', type=int, default=1, help='dimension of h after shared encoder')
+
 # Logging options
 parser.add_argument('--tensorboard', action='store_true', help='whether to use tensorboard')
 parser.add_argument('--log_dir', type=str, default='logs')
@@ -62,10 +68,10 @@ opts = parser.parse_args()
 #import dataset module
 dataset_module = importlib.import_module('_'.join(['dataset', opts.experiment]))
 
-train_dataset = dataset_module.get_dataset(opts, train=True)
+train_dataset = dataset_module.get_dataset(opts, split='train')
 train_dataloader = DataLoader(train_dataset, batch_size=opts.batch_size, 
     shuffle=True, num_workers=10)
-test_dataset = dataset_module.get_dataset(opts, train=False)
+test_dataset = dataset_module.get_dataset(opts, split='val')
 test_dataloader = DataLoader(test_dataset, batch_size=opts.batch_size, 
     shuffle=True, num_workers=10)
 
