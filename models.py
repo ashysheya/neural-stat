@@ -2,6 +2,7 @@ import torch
 import torch.nn as nn
 import numpy as np
 from utils import sample_from_normal
+import torch.nn.functional as F
 
 def get_model(opts):
     return NeuralStatistician(opts)
@@ -64,12 +65,14 @@ class NeuralStatistician(nn.Module):
             nn.init.xavier_normal_(m.weight.data, gain=nn.init.calculate_gain('relu'))
             nn.init.constant_(m.bias.data, 0)
 
+
 class SharedEncoder(nn.Module):
     """Shared Encoder x-->h"""
     def __init__(self, experiment):
         super(SharedEncoder, self).__init__()
+        self.experiment = experiment
 
-        if experiment == 'youtube':
+        if self.experiment == 'youtube':
             # Youtube shared encoder is as follows:
             # - 2x{conv2d 32 feature maps with 3x3 kernels and ELU activations}
             # - conv2d 32 feature maps with 3x3 kernels, stride 2 and ELU activations
@@ -83,43 +86,43 @@ class SharedEncoder(nn.Module):
             # Input shape is (-1, 3, 64, 64)
             self.model = nn.Sequential(nn.Conv2d(3, 32, kernel_size=3, padding=1, stride=1),
                                        nn.BatchNorm2d(num_features=32),
-                                       nn.ReLU(True),
+                                       nn.ELU(inplace=True),
                                        nn.Conv2d(32, 32, kernel_size=3, padding=1, stride=1),
                                        nn.BatchNorm2d(num_features=32),
-                                       nn.ReLU(True),
+                                       nn.ELU(inplace=True),
                                        nn.Conv2d(32, 32, kernel_size=3, padding=1, stride=2),
                                        nn.BatchNorm2d(num_features=32),
-                                       nn.ReLU(True),
+                                       nn.ELU(inplace=True),
                                        # Shape is now (-1, 32, 32, 32)
                                        nn.Conv2d(32, 64, kernel_size=3, padding=1, stride=1),
                                        nn.BatchNorm2d(num_features=64),
-                                       nn.ReLU(True),
+                                       nn.ELU(inplace=True),
                                        nn.Conv2d(64, 64, kernel_size=3, padding=1, stride=1),
                                        nn.BatchNorm2d(num_features=64),
-                                       nn.ReLU(True),
+                                       nn.ELU(inplace=True),
                                        nn.Conv2d(64, 64, kernel_size=3, padding=1, stride=2),
                                        nn.BatchNorm2d(num_features=64),
-                                       nn.ReLU(True),
+                                       nn.ELU(inplace=True),
                                        # Shape is now (-1, 64, 16, 16)
                                        nn.Conv2d(64, 128, kernel_size=3, padding=1, stride=1),
                                        nn.BatchNorm2d(num_features=128),
-                                       nn.ReLU(True),
+                                       nn.ELU(inplace=True),
                                        nn.Conv2d(128, 128, kernel_size=3, padding=1, stride=1),
                                        nn.BatchNorm2d(num_features=128),
-                                       nn.ReLU(True),
+                                       nn.ELU(inplace=True),
                                        nn.Conv2d(128, 128, kernel_size=3, padding=1, stride=2),
                                        nn.BatchNorm2d(num_features=128),
-                                       nn.ReLU(True),
+                                       nn.ELU(inplace=True),
                                        # Shape is now (-1, 128, 8, 8)
                                        nn.Conv2d(128, 256, kernel_size=3, padding=1, stride=1),
                                        nn.BatchNorm2d(num_features=256),
-                                       nn.ReLU(True),
+                                       nn.ELU(inplace=True),
                                        nn.Conv2d(256, 256, kernel_size=3, padding=1, stride=1),
                                        nn.BatchNorm2d(num_features=256),
-                                       nn.ReLU(True),
+                                       nn.ELU(inplace=True),
                                        nn.Conv2d(256, 256, kernel_size=3, padding=1, stride=2),
                                        nn.BatchNorm2d(num_features=256),
-                                       nn.ReLU(True))
+                                       nn.ELU(inplace=True))
                                        # Shape is now (-1, 256, 4, 4)
 
     def forward(self, input_dict):
@@ -129,7 +132,7 @@ class SharedEncoder(nn.Module):
         # Pass x as (-1, 3, 64, 64), i.e. (batch_size*5, 3, 64, 64)
         h = self.model(datasets.view(data_size[0]*data_size[1], *data_size[2:]))
         # Reshape as (batch_size, num_data_per_dataset, 256, 4, 4), i.e. probably (16, 5, 256, 4, 4)
-        h = h.view(-1, data_size[1], 256, 4, 4)
+        h = h.view(data_size[0], data_size[1], 256, 4, 4).contiguous()
 
         return {'encoded_data': h}  # encoded input has dim (batch_size, num_data_per_dataset, 256, 4, 4)
 
@@ -160,13 +163,13 @@ class StatisticNetwork(nn.Module):
         elif experiment == "youtube":
             # Output of the shared encoder has 256 feature maps, each 4x4: x_dim = 256*4*4=4096
             self.before_pooling = nn.Sequential(nn.Linear(x_dim, 1000),
-                                                nn.ReLU(True))
+                                                nn.ELU(inplace=True))
             # Check here: unsure about hidden layer dim and number of FC layers. Also, in paper specifies LINEAR
             # layers, but on repo used a non-linearity. So used ReLU, and same number of layers as in repo.
             self.after_pooling = nn.Sequential(nn.Linear(1000, 1000),
-                                               nn.ReLU(True),
+                                               nn.ELU(inplace=True),
                                                nn.Linear(1000, 1000),
-                                               nn.ReLU(True),
+                                               nn.ELU(inplace=True),
                                                nn.Linear(1000, context_dim*2))
 
     def forward(self, input_dict):
@@ -287,7 +290,7 @@ class InferenceNetwork(nn.Module):
                 # state that h and c should be concatenated and THEN use a fully-connected layer, so will use this.
                 # Same as paper: FC layer with 1000 units and ReLU, and FC layers to mean and logvar
                 self.model += [nn.Sequential(nn.Linear(input_dim, 1000),
-                                             nn.ReLU(True),
+                                             nn.ELU(inplace=True),
                                              nn.Linear(1000, z_dim*2))]
                 # The following stochastic layers also take previous stochastic layer as input
                 input_dim = self.context_dim + self.z_dim + self.x_dim
@@ -371,7 +374,7 @@ class LatentDecoderNetwork(nn.Module):
                 # Same as inference network: different way of doing it than repo.
                 # Same as paper: FC layer with 1000 units and ReLU, and FC layers to mean and logvar
                 self.model += [nn.Sequential(nn.Linear(input_dim, 1000),
-                                             nn.ReLU(True),
+                                             nn.ELU(inplace=True),
                                              nn.Linear(1000, z_dim*2))]
                 input_dim = self.context_dim + self.z_dim
 
@@ -440,55 +443,56 @@ class ObservationDecoderNetwork(nn.Module):
             self.logvar = nn.Parameter(torch.randn(1, 3, 64, 64).cuda())
 
             self.pre_conv = nn.Sequential(nn.Linear(input_dim, 1000),
-                                          nn.ReLU(True),
+                                          nn.ELU(inplace=True),
                                           # Used x_dim=256*4*4, but in paper seems to say 256*8*8, which wouldn't work
                                           # with the output image dimensions
                                           nn.Linear(1000, x_dim))
             self.conv = nn.Sequential(nn.Conv2d(256, 256, kernel_size=3, padding=1, stride=1),
                                       # Dim is (-1, 256, 4, 4)
                                       nn.BatchNorm2d(num_features=256),
-                                      nn.ReLU(True),
+                                      nn.ELU(inplace=True),
                                       nn.Conv2d(256, 256, kernel_size=3, padding=1, stride=1),
                                       nn.BatchNorm2d(num_features=256),
-                                      nn.ReLU(True),
+                                      nn.ELU(inplace=True),
                                       # Check here: in repo, didn't specify padding for ConvTranspose2d
-                                      nn.ConvTranspose2d(256, 256, kernel_size=2, padding=1, stride=2),
+                                      nn.ConvTranspose2d(256, 256, kernel_size=2, stride=2),
                                       # Dim is now (-1, 256, 8, 8)
                                       nn.BatchNorm2d(num_features=256),
-                                      nn.ReLU(True),
+                                      nn.ELU(inplace=True),
                                       nn.Conv2d(256, 128, kernel_size=3, padding=1, stride=1),
                                       nn.BatchNorm2d(num_features=128),
-                                      nn.ReLU(True),
+                                      nn.ELU(inplace=True),
                                       nn.Conv2d(128, 128, kernel_size=3, padding=1, stride=1),
                                       nn.BatchNorm2d(num_features=128),
-                                      nn.ReLU(True),
-                                      nn.ConvTranspose2d(128, 128, kernel_size=2, padding=1, stride=2),
+                                      nn.ELU(inplace=True),
+                                      nn.ConvTranspose2d(128, 128, kernel_size=2, stride=2),
                                       # Dim is now (-1, 128, 16, 16)
                                       nn.BatchNorm2d(num_features=128),
-                                      nn.ReLU(True),
+                                      nn.ELU(inplace=True),
                                       nn.Conv2d(128, 64, kernel_size=3, padding=1, stride=1),
                                       nn.BatchNorm2d(num_features=64),
-                                      nn.ReLU(True),
+                                      nn.ELU(inplace=True),
                                       nn.Conv2d(64, 64, kernel_size=3, padding=1, stride=1),
                                       nn.BatchNorm2d(num_features=64),
-                                      nn.ReLU(True),
-                                      nn.ConvTranspose2d(64, 64, kernel_size=2, padding=1, stride=2),
+                                      nn.ELU(inplace=True),
+                                      nn.ConvTranspose2d(64, 64, kernel_size=2, stride=2),
                                       # Dim is now (-1, 64, 32, 32)
                                       nn.BatchNorm2d(num_features=64),
-                                      nn.ReLU(True),
+                                      nn.ELU(inplace=True),
                                       nn.Conv2d(64, 32, kernel_size=3, padding=1, stride=1),
                                       nn.BatchNorm2d(num_features=32),
-                                      nn.ReLU(True),
+                                      nn.ELU(inplace=True),
                                       nn.Conv2d(32, 32, kernel_size=3, padding=1, stride=1),
                                       nn.BatchNorm2d(num_features=32),
-                                      nn.ReLU(True),
-                                      nn.ConvTranspose2d(32, 32, kernel_size=2, padding=1, stride=2),
+                                      nn.ELU(inplace=True),
+                                      nn.ConvTranspose2d(32, 32, kernel_size=2, stride=2),
                                       # Dim is now (-1, 32, 64, 64)
                                       nn.BatchNorm2d(num_features=32),
-                                      nn.ReLU(True),
-                                      nn.Conv2d(32, 3, kernel_size=1, padding=1, stride=1),
+                                      nn.ELU(inplace=True),
+                                      nn.Conv2d(32, 3, kernel_size=1)
                                       # Dim is now (-1, 3, 64, 64)
-                                      nn.Sigmoid(True))
+                                      #nn.Sigmoid(True)
+                                      )
 
     def forward(self, input_dict):
         """
@@ -512,7 +516,7 @@ class ObservationDecoderNetwork(nn.Module):
         elif self.experiment == 'youtube':
             pre_conv_output = self.pre_conv(inputs)
             pre_conv_output = pre_conv_output.view(-1, 256, 4, 4)
-            x_mean = self.conv(pre_conv_output)  # Should have size (batch_size*num_data_per_dataset, 3, 64, 64)
+            x_mean = F.sigmoid(self.conv(pre_conv_output))  # Should be (batch_size*num_data_per_dataset, 3, 64, 64)
             x_logvar = self.logvar.expand_as(x_mean)
 
         return {'means_x': x_mean, 'logvars_x': x_logvar}

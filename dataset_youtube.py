@@ -16,14 +16,14 @@ from torch.utils.data import Dataset
 def get_dataset(opts, split='train'):
     """Function to get instance of YoutubeDataset given training options."""
     # ##For testing##
-    #splits = {'train': slice(0, train_num_persons),
-    #          'test': slice(train_num_persons, train_num_persons + test_num_persons),
-    #          'valid': slice(train_num_persons + test_num_persons, 1595)
+    #splits = {'train': slice(0, 100),
+    #          'test': slice(100, 110),
+    #          'val': slice(110, 120)
     #         }
 
     splits = {'train': slice(0, opts.train_num_persons),
               'test': slice(opts.train_num_persons, opts.train_num_persons + opts.test_num_persons),
-              'valid': slice(opts.train_num_persons + opts.test_num_persons, 1595)
+              'val': slice(opts.train_num_persons + opts.test_num_persons, 1595)
              }
 
 # ##For testing##   return YoutubeDataset(data_dir, slice(0, 30), num_data_per_dataset)

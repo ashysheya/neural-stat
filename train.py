@@ -167,7 +167,7 @@ for epoch in tqdm.tqdm(range(opts.num_epochs)):
 
             # Print losses every 5% of training
             if (round(epoch / opts.num_epochs) * 100) % 5 == 0:
-                print('Epoch {}: val error = {}'.format(epoch, losses['NLL']))
+                print('Epoch {}: val NLL error = {}'.format(epoch, losses['NLL']))
     
     if opts.experiment == 'synthetic':    
         contexts_test = np.concatenate(contexts_test, axis=0)  # (500*4, 3)
