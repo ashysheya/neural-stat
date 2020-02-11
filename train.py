@@ -36,7 +36,7 @@ parser.add_argument('--lr', type=float, default=1e-4, help='learning rate for op
 
 parser.add_argument('--beta1', type=float, default=0.9, help='beta1 for optimizer')
 
-parser.add_argument('--num_epochs', type=int, default=300, help='number of training epochs')
+parser.add_argument('--num_epochs', type=int, default=50, help='number of training epochs')
 
 # Architecture options
 parser.add_argument('--context_dim', type=int, default=3, help='context dimension')
@@ -61,7 +61,7 @@ parser.add_argument('--h_dim', type=int, default=1, help='dimension of h after s
 parser.add_argument('--tensorboard', action='store_true', help='whether to use tensorboard')
 parser.add_argument('--log_dir', type=str, default='logs')
 parser.add_argument('--save_dir', type=str, default='model_params')
-parser.add_argument('--save_freq', type=int, default=1)
+parser.add_argument('--save_freq', type=int, default=20)
 
 opts = parser.parse_args()
 
@@ -80,15 +80,16 @@ loss_dict = get_loss(opts)
 logger = get_logger(opts)
 optimizer = optim.Adam(model.parameters(), lr=opts.lr, betas=(opts.beta1, 0.999))
 
-alpha = 0
+alpha = 0.0
 
 for epoch in tqdm.tqdm(range(opts.num_epochs)):
+    model.train()
     for data_dict in train_dataloader:
         data = data_dict['datasets'].cuda()
 
         optimizer.zero_grad()
 
-        output_dict = model.forward(data)
+        output_dict = model.forward(data, train=True)
 
         losses = {}
 
@@ -103,8 +104,13 @@ for epoch in tqdm.tqdm(range(opts.num_epochs)):
 
         logger.log_data(output_dict, losses)
 
-    with torch.no_grad():
+    if opts.experiment == 'omniglot':
+        	logger.log_image(output_dict, 'train')
 
+    alpha *= 0.5
+
+    with torch.no_grad():
+        model.eval()
         if opts.experiment == 'synthetic':
             contexts_test = []
             labels_test = []
@@ -114,7 +120,7 @@ for epoch in tqdm.tqdm(range(opts.num_epochs)):
         for data_dict in test_dataloader:
 
             data = data_dict['datasets'].cuda()
-            output_dict = model.forward(data)
+            output_dict = model.forward(data, train=False)
             losses = {'NLL': loss_dict['NLL'].forward(output_dict)}
 
             logger.log_data(output_dict, losses, split='test')
@@ -125,6 +131,9 @@ for epoch in tqdm.tqdm(range(opts.num_epochs)):
                 means_test.append(data_dict['means'].numpy())
                 variances_test.append(data_dict['variances'].numpy())
                 contexts_test.append(output_dict['means_context'].cpu().numpy())
+
+        if opts.experiment == 'omniglot':
+        	logger.log_image(output_dict, 'test')
     
     if opts.experiment == 'synthetic':    
         contexts_test = np.concatenate(contexts_test, axis=0)

@@ -1,8 +1,10 @@
 import torch
 import numpy as np
+import PIL.ImageOps    
 from torch.utils.data import Dataset
 from torchvision.datasets import MNIST, Omniglot
-from skimage.morphology import binary_dilation
+from skimage.morphology import binary_dilation, disk
+from skimage.transform import resize
 
 
 def get_dataset(opts, split='train'):
@@ -25,9 +27,9 @@ class OmniglotDataset(Dataset):
 
         if self.split == 'test' and self.mnist:
             data = MNIST('mnist', download=True, train=True)
-            x_train, y_train = data.train_data.float()/255, data.train_labels
+            x_train, y_train = data.data.float()/255, data.targets
             data = MNIST('mnist', download=True, train=False)
-            x_test, y_test = data.test_data.float()/255, data.test_labels
+            x_test, y_test = data.data.float()/255, data.targets
             self.x = torch.cat([x_train.round(), x_test.round()], dim=0)[:, None]
             self.y = torch.cat([y_train, y_test], dim=0)
 
@@ -41,17 +43,18 @@ class OmniglotDataset(Dataset):
         elif self.split == 'train':
             return 1200*(20//self.num_data_per_dataset)
         elif self.split == 'test':
-            return 328*(20//self.num_data_per_dataset)
+            return 323*(20//self.num_data_per_dataset)
         else:
             return 100*(20//self.num_data_per_dataset)
 
     def __getitem__(self, idx):
         if self.mnist and self.split == 'test':
-            label = np.random.randint(0, 11)
-            x_chosen_idx = np.random.choice(len(self.x[self.y == label]),
+            label = np.random.randint(0, 10)
+            data_label = self.x[self.y == label]
+            x_chosen_idx = np.random.choice(len(data_label),
                 size=self.num_data_per_dataset, replace=False)
 
-            return {'datasets': self.x[x_chosen_idx],
+            return {'datasets': data_label[x_chosen_idx],
                     'targets': label}
         elif self.split == 'train':
             if len(self.dataset_background)//self.num_data_per_dataset <= idx:
@@ -64,20 +67,50 @@ class OmniglotDataset(Dataset):
             images = []
             for i in range(self.num_data_per_dataset):
                 image, label = dataset[idx*self.num_data_per_dataset + i]
+                image = PIL.ImageOps.invert(image)
                 images += [np.asarray(image.resize((28, 28)).rotate(rotation_angle))/255]
 
-            images = np.stack(images, dim=0)
+            images = np.stack(images, axis=0)
             if np.random.uniform(0, 1) < 0.5:
                 images = images[:, :, ::-1]
             if np.random.uniform(0, 1) < 0.5:
                 images = images[:, ::-1]
-            images = np.random.binomial(1, p=images, size=images).astype(np.bool)
+            images = np.random.binomial(1, p=images, size=images.shape).astype(np.bool)
 
-            selem = np.random.randint(0, 5)
+            selem = np.random.randint(0, 2)
+            # selem = 0
 
             if selem > 0:
                 for i in range(len(images)):
-                    images[i] = binary_dilation(images[i], selem=selem).astype(np.float32)
+                    images[i] = binary_dilation(images[i], selem=disk(selem))
+
+            # images = []
+            # for i in range(self.num_data_per_dataset):
+            #     image, label = dataset[idx*self.num_data_per_dataset + i]
+            #     image = PIL.ImageOps.invert(image)
+            #     images += [np.asarray(image.rotate(rotation_angle))/255]
+
+            # images = np.stack(images, axis=0)
+            # if np.random.uniform(0, 1) < 0.5:
+            #     images = images[:, :, ::-1]
+            # if np.random.uniform(0, 1) < 0.5:
+            #     images = images[:, ::-1]
+            # images = np.random.binomial(1, p=images, size=images.shape).astype(np.bool)
+
+            # selem = np.random.randint(0, 5)
+            # # selem = 0
+
+            # if selem > 0:
+            #     for i in range(len(images)):
+            #         images[i] = binary_dilation(images[i], selem=disk(selem))
+
+            # images = images.astype(np.float32)
+
+            # resized_images = []
+            # for im in images:
+            #     resized_images += [resize(im, output_shape=(28, 28)).round()]
+
+            # images = np.stack(resized_images, axis=0)
 
             perm = np.random.permutation(self.num_data_per_dataset)
 
@@ -99,8 +132,9 @@ class OmniglotDataset(Dataset):
         images = []
         for i in range(self.num_data_per_dataset):
             image, label = dataset[idx*self.num_data_per_dataset + i]
+            image = PIL.ImageOps.invert(image)
             images += [(np.asarray(image.resize((28, 28)))/255).round()]
-        images = np.stack(images, dim=0)
+        images = np.stack(images, axis=0)
 
         return {'datasets': torch.FloatTensor(images[:, None]),
                 'targets': label}
