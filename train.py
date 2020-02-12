@@ -105,7 +105,7 @@ for epoch in tqdm.tqdm(range(opts.num_epochs)):
         logger.log_data(output_dict, losses)
 
     if opts.experiment == 'omniglot':
-        	logger.log_image(output_dict, 'train')
+            logger.log_image(output_dict, 'train')
 
     alpha *= 0.5
 

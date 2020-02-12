@@ -99,9 +99,9 @@ class Logger:
 
 
     def log_image(self, output_data, split):
-        data_gen = output_data['proba_x'].cpu()
+        data_gen = output_data['proba_x'].data.cpu()
         nrows = output_data['train_data'].size()[1]
-        data_real = output_data['train_data'].cpu().view_as(data_gen)
+        data_real = output_data['train_data'].view_as(data_gen).data.cpu()
 
         data_gen = make_grid(data_gen, nrow=nrows)
         data_real = make_grid(data_real, nrow=nrows)
@@ -111,9 +111,9 @@ class Logger:
             self.writer.add_image(f'{split}_real', data_real, self.embedding_step)
 
         else:
-            im = Image.fromarray(np.uint8(data_gen.transpose((1, 2, 0))*255))
+            im = Image.fromarray(np.uint8(data_gen.numpy().transpose((1, 2, 0))*255))
             im.save(f'{self.log_dir}/{self.experiment_name}/{self.embedding_step}_gen_{split}.png')
-            im = Image.fromarray(np.uint8(data_real.transpose((1, 2, 0))*255))
+            im = Image.fromarray(np.uint8(data_real.numpy().transpose((1, 2, 0))*255))
             im.save(f'{self.log_dir}/{self.experiment_name}/{self.embedding_step}_real_{split}.png')
         
         if split == 'test':    
