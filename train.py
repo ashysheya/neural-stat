@@ -66,7 +66,7 @@ parser.add_argument('--x_dim', type=int, default=1, help='dimension of input')
 parser.add_argument('--tensorboard', action='store_true', help='whether to use tensorboard')
 parser.add_argument('--log_dir', type=str, default='logs')
 parser.add_argument('--save_dir', type=str, default='model_params')
-parser.add_argument('--save_freq', type=int, default=1)
+parser.add_argument('--save_freq', type=int, default=20)
 
 opts = parser.parse_args()
 
@@ -101,6 +101,7 @@ for epoch in tqdm.tqdm(range(opts.num_epochs)):
     # Calls __getitem__ in dataset_synthetic: takes one batch of data, and returns a dictionary with 'datasets'
     # (16, 200, 1), 'targets' (1, 16), 'means' (1, 16) and 'variances' (1, 16)
     # For youtube faces data, size is (16, 5, 3, 64, 64)
+    model.train()
     for data_dict in train_dataloader:
         data = data_dict['datasets'].cuda()  # Size is (16, 200, 1) for synthetic data, (16, 5, 3, 64, 64) for youtube
 
@@ -121,7 +122,7 @@ for epoch in tqdm.tqdm(range(opts.num_epochs)):
         # - p(x|z_1, .., z_L, c): 'means_x': means (16*200, x_dim)
         #                         'logvars_x': logvars (16*200, x_dim)
 
-        output_dict = model.forward(data)
+        output_dict = model.forward(data, train=True)
 
         losses = {}
 
@@ -141,9 +142,12 @@ for epoch in tqdm.tqdm(range(opts.num_epochs)):
         # Save model outputs and losses from the training.
         logger.log_data(output_dict, losses)
 
+    if opts.experiment == 'omniglot' or opts.experiment == 'youtube':
+        logger.log_image(output_dict, 'train')
+
     # Compute the same for the test data
     with torch.no_grad():
-
+        model.eval()
         if opts.experiment == 'synthetic':
             contexts_test = []
             labels_test = []
@@ -153,7 +157,7 @@ for epoch in tqdm.tqdm(range(opts.num_epochs)):
         for data_dict in test_dataloader:
 
             data = data_dict['datasets'].cuda()
-            output_dict = model.forward(data)
+            output_dict = model.forward(data, train=False)
             losses = {'NLL': loss_dict['NLL'].forward(output_dict)}
 
             logger.log_data(output_dict, losses, split='test')
@@ -168,7 +172,10 @@ for epoch in tqdm.tqdm(range(opts.num_epochs)):
             # Print losses every 5% of training
             if (round(epoch / opts.num_epochs) * 100) % 5 == 0:
                 print('Epoch {}: val NLL error = {}'.format(epoch, losses['NLL']))
-    
+
+        if opts.experiment == 'omniglot' or opts.experiment == 'youtube':
+            logger.log_image(output_dict, 'test')
+
     if opts.experiment == 'synthetic':    
         contexts_test = np.concatenate(contexts_test, axis=0)  # (500*4, 3)
         labels_test = np.concatenate(labels_test, axis=0)  # (500*4, )

@@ -1,8 +1,8 @@
 import os
-import cv2
 import torch
 import numpy as np
 import tqdm
+from skimage.io import imread
 from torch.utils.data import Dataset
 
 # ## For testing
@@ -57,9 +57,10 @@ class YoutubeDataset(Dataset):
                 dataset = []
                 for frame in dataset_frames:
                     frame_path = os.path.join(video_path, frame)
-                    img_scaled = cv2.imread(frame_path, cv2.IMREAD_UNCHANGED).astype(np.float64)/255
+                    img = np.array(imread(frame_path).transpose(2, 0, 1)).astype(np.float32) / 255
+
                     # Image must be size (num_channels, w, h) --> transpose, and append to list of images
-                    dataset.append(img_scaled.transpose(2, 0, 1))
+                    dataset.append(img)
 
                 dataset = np.array(dataset)  # Shape is (num_data_per_dataset, 3, 64, 64)
                 datasets.append(dataset)

@@ -8,6 +8,13 @@ from collections import defaultdict
 from matplotlib import pyplot as plt
 plt.switch_backend('agg')
 from mpl_toolkits.mplot3d import Axes3D
+from torchvision.utils import make_grid
+from PIL import Image
+
+def normalize_img(img):
+    img = img - img.min()
+    img = img / img.max()
+    return img
 
 def get_logger(opts):
     return Logger(opts)
@@ -102,6 +109,27 @@ class Logger:
             plt.close()
 
         self.embedding_step += 1
+
+    def log_image(self, output_data, split):
+        data_gen = output_data['means_x'].data.cpu()
+        nrows = output_data['train_data'].size()[1]
+        data_real = output_data['train_data'].view_as(data_gen).data.cpu()
+
+        data_gen = make_grid(data_gen, nrow=nrows)
+        data_real = make_grid(data_real, nrow=nrows)
+
+        if self.tensorboard:
+            self.writer.add_image(f'{split}_gen', data_gen, self.embedding_step)
+            self.writer.add_image(f'{split}_real', data_real, self.embedding_step)
+
+        else:
+            im = Image.fromarray(np.uint8(normalize_img(data_gen.numpy().transpose((1, 2, 0))) * 255))
+            im.save(f'{self.log_dir}/{self.experiment_name}/{self.embedding_step}_gen_{split}.png')
+            im = Image.fromarray(np.uint8(normalize_img(data_real.numpy().transpose((1, 2, 0))) * 255))
+            im.save(f'{self.log_dir}/{self.experiment_name}/{self.embedding_step}_real_{split}.png')
+
+        if split == 'test':
+            self.embedding_step += 1
 
     def save_model(self, model, model_name):
         torch.save(model.state_dict(),

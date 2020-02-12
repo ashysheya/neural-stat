@@ -29,8 +29,8 @@ class NeuralStatistician(nn.Module):
 
         self.apply(self.init_weights)
 
-    def forward(self, datasets):
-        outputs = {'train_data': datasets}
+    def forward(self, datasets, train=True):
+        outputs = {'train_data': datasets, 'train': train}
 
         # get encoded version of input: x-->h
         if self.shared_encoder:
@@ -54,6 +54,40 @@ class NeuralStatistician(nn.Module):
         outputs.update(latent_variables_prior_dict)
 
         # get generated samples from decoder network: p(x|z_1, .., z_L, c)
+        observation_dict = self.observation_decoder_network(outputs)
+        outputs.update(observation_dict)
+
+        return outputs
+
+    def sample_conditional(self, datasets, num_samples_per_dataset):
+        outputs = {'train_data': datasets, 'train': False}
+
+        shared_encoder_dict = self.shared_encoder(outputs)
+        outputs.update(shared_encoder_dict)
+
+        context_dict = self.statistic_network.sample(outputs)
+        outputs.update(context_dict)
+
+        # get parameters for latent variables prior: p(z_1, .., z_L|c)
+        latent_variables_dict = self.latent_decoder_network.sample(outputs,
+            num_samples_per_dataset)
+        outputs.update(latent_variables_dict)
+
+        # get generated samples from decoder network: p(x|z_1, .., z_L, c)
+        observation_dict = self.observation_decoder_network(outputs)
+        outputs.update(observation_dict)
+
+        return outputs
+
+    def sample(self, num_samples_per_dataset, num_datasets):
+        outputs = {'train': False}
+
+        context_prior_dict = self.context_prior.sample(num_datasets)
+        outputs.update(context_prior_dict)
+
+        latent_variables_dict = self.latent_decoder_network.sample(outputs, num_samples_per_dataset)
+        outputs.update(latent_variables_dict)
+
         observation_dict = self.observation_decoder_network(outputs)
         outputs.update(observation_dict)
 
@@ -135,6 +169,7 @@ class SharedEncoder(nn.Module):
         h = h.view(data_size[0], data_size[1], 256, 4, 4).contiguous()
 
         return {'encoded_data': h}  # encoded input has dim (batch_size, num_data_per_dataset, 256, 4, 4)
+
 
 class StatisticNetwork(nn.Module):
     """Variational approximation q(c|D)."""
@@ -219,6 +254,11 @@ class StatisticNetwork(nn.Module):
         # samples_expanded(16*200, 3): 1 for each x (the same copied along each x in each D)
         # For faces data, this is the same, except that sample_size=5 instead of 200 and context_dim=500 by default
 
+    def sample(self, input_dict):
+        output_dict = self.forward(input_dict)
+        return {'samples_context': output_dict['means_context']}
+
+
 class ContextPriorNetwork(nn.Module):
     """Prior for c, p(c)."""
     def __init__(self, context_dim, type_prior='standard'):
@@ -248,6 +288,12 @@ class ContextPriorNetwork(nn.Module):
             return {'means_context_prior': means,
                     'logvars_context_prior': logvars}
             # Dict with means_context_prior(16, 3) and logvars_context_prior(16, 3) for synthetic data
+
+    def sample(self, num_datasets):
+        if self.type_prior == 'standard':
+            means = torch.zeros((num_datasets, self.context_dim)).cuda()
+            logvars = torch.zeros_like(means).cuda()
+            return {'samples_context': sample_from_normal(means, logvars)}
 
 
 class InferenceNetwork(nn.Module):
@@ -406,6 +452,41 @@ class LatentDecoderNetwork(nn.Module):
         # list having dimension (16*200, z_dim)
         return outputs
 
+    def sample(self, input_dict, num_samples_per_dataset):
+        context = input_dict['samples_context']
+        context_expanded = context[:, None].expand(-1, num_samples_per_dataset, -1).contiguous()
+        context_expanded = context_expanded.view(-1, self.context_dim)
+
+        current_input = context_expanded
+
+        outputs = {'samples_latent_z': [],
+                   'samples_context_expanded': context_expanded}
+
+        for i, module in enumerate(self.model):
+            current_output = module.forward(current_input)
+            means = current_output[:, :self.z_dim]
+            logvars = torch.clamp(current_output[:, self.z_dim:], -10, 10)
+            samples = sample_from_normal(means, logvars)
+            current_input = torch.cat([context_expanded, samples], dim=1)
+            outputs['samples_latent_z'] += [samples]
+
+        return outputs
+
+
+class ClampLayer(nn.Module):
+    def __init__(self, min=None, max=None):
+        super().__init__()
+        self.min = min
+        self.max = max
+        self.kwargs = {}
+        if min is not None:
+            self.kwargs['min'] = min
+        if max is not None:
+            self.kwargs['max'] = max
+
+    def forward(self, input):
+        return torch.clamp(input, **self.kwargs)
+
 
 class ObservationDecoderNetwork(nn.Module):
     """
@@ -447,6 +528,7 @@ class ObservationDecoderNetwork(nn.Module):
                                           # Used x_dim=256*4*4, but in paper seems to say 256*8*8, which wouldn't work
                                           # with the output image dimensions
                                           nn.Linear(1000, x_dim))
+
             self.conv = nn.Sequential(nn.Conv2d(256, 256, kernel_size=3, padding=1, stride=1),
                                       # Dim is (-1, 256, 4, 4)
                                       nn.BatchNorm2d(num_features=256),
@@ -489,9 +571,10 @@ class ObservationDecoderNetwork(nn.Module):
                                       # Dim is now (-1, 32, 64, 64)
                                       nn.BatchNorm2d(num_features=32),
                                       nn.ELU(inplace=True),
-                                      nn.Conv2d(32, 3, kernel_size=1)
+                                      nn.Conv2d(32, 3, kernel_size=1),
                                       # Dim is now (-1, 3, 64, 64)
                                       #nn.Sigmoid(True)
+                                      ClampLayer(-10, 10)
                                       )
 
     def forward(self, input_dict):
@@ -510,7 +593,7 @@ class ObservationDecoderNetwork(nn.Module):
         if self.experiment == 'synthetic':
             # Output has size (16*200, x_dim*2) for synthetic case
             outputs = self.model(inputs)
-            x_mean = outputs[:, :self.x_dim],
+            x_mean = outputs[:, :self.x_dim]
             x_logvar = torch.clamp(outputs[:, self.x_dim:], -10, 10)
 
         elif self.experiment == 'youtube':
