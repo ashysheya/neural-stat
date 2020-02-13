@@ -8,6 +8,8 @@ from collections import defaultdict
 from matplotlib import pyplot as plt
 plt.switch_backend('agg')
 from mpl_toolkits.mplot3d import Axes3D
+from torchvision.utils import make_grid
+from PIL import Image
 
 def get_logger(opts):
     return Logger(opts)
@@ -102,3 +104,61 @@ class Logger:
         if not self.tensorboard:
             with open(f'{self.log_dir}/{self.experiment_name}/losses', 'wb') as f:
                 pickle.dump(self.losses_dict, f)
+
+
+    def log_image(self, output_data, split):
+        data_gen = output_data['proba_x'].cpu()
+        nrows = output_data['train_data'].size()[1]
+        data_real = output_data['train_data'].cpu().view_as(data_gen)
+
+        data_gen = make_grid(data_gen, nrow=nrows)
+        data_real = make_grid(data_real, nrow=nrows)
+
+        if self.tensorboard:
+            self.writer.add_image(f'{split}_gen', data_gen, self.embedding_step)
+            self.writer.add_image(f'{split}_real', data_real, self.embedding_step)
+
+        else:
+            im = Image.fromarray(np.uint8(data_gen.transpose((1, 2, 0))*255))
+            im.save(f'{self.log_dir}/{self.experiment_name}/{self.embedding_step}_gen_{split}.png')
+            im = Image.fromarray(np.uint8(data_real.transpose((1, 2, 0))*255))
+            im.save(f'{self.log_dir}/{self.experiment_name}/{self.embedding_step}_real_{split}.png')
+        
+        if split == 'test':    
+            self.embedding_step += 1
+
+
+    # https://github.com/conormdurkan/neural-statistician/blob/master/spatial/spatialplot.py
+    def grid(self, inputs, samples, summaries=None, ncols=10, mode = 'test'):
+
+        inputs = inputs.data.cpu().numpy()
+        samples = samples.view(-1, 50, 2).data.cpu().numpy()
+        if summaries is not None:
+            summaries = summaries.data.cpu().numpy()
+        fig, axs = plt.subplots(nrows=2, ncols=ncols, figsize=(ncols, 2))
+
+        def plot_single(ax, points, s, color):
+            ax.scatter(points[:, 0], points[:, 1], s=s,  color=color)
+            ax.set_xticks([])
+            ax.set_yticks([])
+            ax.set_xlim([0, 27])
+            ax.set_ylim([0, 27])
+            ax.set_aspect('equal', adjustable='box')
+
+        #print(inputs[0])
+        #print(inputs[:,0])
+        #print(samples[0])
+
+        if inputs.shape[0] > 5:
+            for i in range(ncols):
+                # fill one column of subplots per loop iteration
+                plot_single(axs[0, i], inputs[i], s=5, color='C0')
+                plot_single(axs[1, i], samples[i], s=5, color='C1')
+                if summaries is not None:
+                    plot_single(axs[1, i], summaries[i], s=10, color='C2')
+
+            fig.subplots_adjust(wspace=0.05, hspace=0.05)
+            plt.tight_layout()
+
+        fig.savefig(f'{self.log_dir}/{self.experiment_name}/{self.embedding_step}_gen_{mode}.png')
+        self.embedding_step += 1

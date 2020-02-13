@@ -6,6 +6,9 @@ import numpy as np
 def get_loss(opts):
     return {'KL': KLDivergence(), 'NLL': NegativeGaussianLogLikelihood()}
 
+def get_kl(opts):
+    return calculate_kl(logvar_prior, logvar, mu, mu_prior)
+
 
 class KLDivergence(nn.Module):
     """KL Divergence between two normal distributions."""
@@ -45,9 +48,11 @@ class NegativeGaussianLogLikelihood(nn.Module):
 
     def forward(self, input_dict):
         batch_size, sample_size = input_dict['train_data'].size()[:2]
-        observations = input_dict['train_data']
+        observations = input_dict['train_data']     # torch.Size([16, 50, 2])
+        # print(input_dict['logvars_x'].shape)
         logvars = input_dict['logvars_x'].view_as(observations)
         means = input_dict['means_x'].view_as(observations)
         log_likelihood = -0.5*logvars - 0.5 * np.log(2 * np.pi)
         log_likelihood -= (means - observations) ** 2 / 2 / (torch.exp(logvars))
         return -log_likelihood.sum()/(batch_size*sample_size)
+

@@ -5,7 +5,11 @@ from utils import sample_from_normal
 def get_model(opts):
     return NeuralStatistician(opts)
 
+def get_stats(opts):
+    return StatisticNetwork(opts.experiment, opts.context_dim, opts.masked)
 
+
+# x_dim needs to be changed for mnist
 class NeuralStatistician(nn.Module):
     """Class that represents the whole model form the paper"""
 
@@ -22,8 +26,8 @@ class NeuralStatistician(nn.Module):
 
         self.apply(self.init_weights)
 
-    def forward(self, datasets):
-        outputs = {'train_data': datasets}
+    def forward(self, datasets, train=True):
+        outputs = {'train_data': datasets, 'train': train}
 
         # get context mu, logsigma of size (batch_size, context_dim): q(c|D)
         context_dict = self.statistic_network(outputs)
@@ -47,6 +51,26 @@ class NeuralStatistician(nn.Module):
 
         return outputs
 
+
+    def sample_conditional(self, datasets, num_samples_per_dataset):
+        outputs = {'train_data': datasets, 'train': False}
+
+        context_dict = self.statistic_network.sample(outputs)
+        outputs.update(context_dict)
+
+        # get parameters for latent variables prior: p(z_1, .., z_L|c)
+        latent_variables_dict = self.latent_decoder_network.sample(outputs, 
+            num_samples_per_dataset)
+        outputs.update(latent_variables_dict)
+
+        # get generated samples from decoder network: p(x|z_1, .., z_L, c)
+        observation_dict = self.observation_decoder_network(outputs)
+        outputs.update(observation_dict)
+
+        return outputs
+
+    
+
     @staticmethod
     def init_weights(m):
         if type(m) == nn.Linear:
@@ -62,20 +86,20 @@ class StatisticNetwork(nn.Module):
         self.masked = masked
         self.context_dim = context_dim
 
-        if experiment == 'synthetic':
-            self.before_pooling = nn.Sequential(nn.Linear(1, 128),
+        if experiment == 'mnist':
+            self.before_pooling = nn.Sequential(nn.Linear(2, 256),
                                                 nn.ReLU(True),
-                                                nn.Linear(128, 128),
+                                                nn.Linear(256, 256),
                                                 nn.ReLU(True),
-                                                nn.Linear(128, 128),
+                                                nn.Linear(256, 256),
                                                 nn.ReLU(True))
-            self.after_pooling = nn.Sequential(nn.Linear(128, 128),
+            self.after_pooling = nn.Sequential(nn.Linear(256, 256),
                                                nn.ReLU(True),
-                                               nn.Linear(128, 128),
+                                               nn.Linear(256, 256),
                                                nn.ReLU(True),
-                                               nn.Linear(128, 128),
+                                               nn.Linear(256, 256),
                                                nn.ReLU(True),
-                                               nn.Linear(128, context_dim*2))
+                                               nn.Linear(256, context_dim*2))
 
     def forward(self, input_dict):
         """
@@ -98,6 +122,11 @@ class StatisticNetwork(nn.Module):
                 'logvars_context': logvars,
                 'samples_context': samples, 
                 'samples_context_expanded': samples_expanded}
+    
+    def sample(self, input_dict):
+        output_dict = self.forward(input_dict)
+        return {'samples_context': output_dict['means_context']}
+    
 
 
 class ContextPriorNetwork(nn.Module):
@@ -127,6 +156,13 @@ class ContextPriorNetwork(nn.Module):
             return {'means_context_prior': means,
                     'logvars_context_prior': logvars}
 
+    def sample(self, num_datasets):
+        if self.type_prior == 'standard':
+            means = torch.zeros((num_datasets, self.context_dim)).cuda()
+            logvars = torch.zeros_like(means).cuda()
+            return {'samples_context': sample_from_normal(means, logvars)}
+
+
 
 class InferenceNetwork(nn.Module):
     """Variational approximation q(z_1, ..., z_L|c, x)."""
@@ -146,15 +182,15 @@ class InferenceNetwork(nn.Module):
         input_dim = self.context_dim + self.x_dim
         self.model = nn.ModuleList()
 
-        if experiment == 'synthetic':
+        if experiment == 'mnist':
             for i in range(self.num_stochastic_layers):
-                self.model += [nn.Sequential(nn.Linear(input_dim, 128),
+                self.model += [nn.Sequential(nn.Linear(input_dim, 256),
                                              nn.ReLU(True),
-                                             nn.Linear(128, 128),
+                                             nn.Linear(256, 256),
                                              nn.ReLU(True),
-                                             nn.Linear(128, 128),
+                                             nn.Linear(256, 256),
                                              nn.ReLU(True),
-                                             nn.Linear(128, z_dim*2))]
+                                             nn.Linear(256, z_dim*2))]
                 # The following stochastic layers also take previous stochastic layer as input
                 # TODO: what about z_L? 
                 input_dim = self.context_dim + self.z_dim + self.x_dim
@@ -206,15 +242,15 @@ class LatentDecoderNetwork(nn.Module):
         input_dim = self.context_dim
         self.model = nn.ModuleList()
 
-        if experiment == 'synthetic':
+        if experiment == 'mnist':
             for i in range(self.num_stochastic_layers):
-                self.model += [nn.Sequential(nn.Linear(input_dim, 128),
+                self.model += [nn.Sequential(nn.Linear(input_dim, 256),
                                              nn.ReLU(True),
-                                             nn.Linear(128, 128),
+                                             nn.Linear(256, 256),
                                              nn.ReLU(True),
-                                             nn.Linear(128, 128),
+                                             nn.Linear(256, 256),
                                              nn.ReLU(True),
-                                             nn.Linear(128, z_dim*2))]
+                                             nn.Linear(256, z_dim*2))]
                 input_dim = self.context_dim + self.z_dim
 
     def forward(self, input_dict):
@@ -242,6 +278,26 @@ class LatentDecoderNetwork(nn.Module):
             current_input = torch.cat([context_expanded, samples_latent_z[i]], dim=1)
         return outputs
 
+    def sample(self, input_dict, num_samples_per_dataset):
+        context = input_dict['samples_context']
+        context_expanded = context[:, None].expand(-1, num_samples_per_dataset, -1).contiguous()
+        context_expanded = context_expanded.view(-1, self.context_dim)
+
+        current_input = context_expanded
+
+        outputs = {'samples_latent_z': [], 
+                   'samples_context_expanded': context_expanded}
+
+        for i, module in enumerate(self.model):
+            current_output = module.forward(current_input)
+            means = current_output[:, :self.z_dim]
+            logvars = torch.clamp(current_output[:, self.z_dim:], -10, 10)
+            samples = sample_from_normal(means, logvars)
+            current_input = torch.cat([context_expanded, samples], dim=1)  
+            outputs['samples_latent_z'] += [samples]
+
+        return outputs
+
 
 class ObservationDecoderNetwork(nn.Module):
     """
@@ -265,14 +321,14 @@ class ObservationDecoderNetwork(nn.Module):
 
         input_dim = num_stochastic_layers*z_dim + context_dim
 
-        if experiment == 'synthetic':
-            self.model = nn.Sequential(nn.Linear(input_dim, 128),
+        if experiment == 'mnist':
+            self.model = nn.Sequential(nn.Linear(input_dim, 256),
                                        nn.ReLU(True),
-                                       nn.Linear(128, 128),
+                                       nn.Linear(256, 256),
                                        nn.ReLU(True),
-                                       nn.Linear(128, 128),
+                                       nn.Linear(256, 256),
                                        nn.ReLU(True),
-                                       nn.Linear(128, x_dim * 2))
+                                       nn.Linear(256, x_dim*2))
 
     def forward(self, input_dict):
         """
@@ -288,7 +344,7 @@ class ObservationDecoderNetwork(nn.Module):
         latent_z = input_dict['samples_latent_z']
         inputs = torch.cat([context_expanded] + latent_z, dim=1)
 
-        outputs = self.model(inputs)
+        outputs = self.model(inputs)     
 
         return {'means_x': outputs[:, :self.x_dim],
                 'logvars_x': torch.clamp(outputs[:, self.x_dim:], -10, 10)}
