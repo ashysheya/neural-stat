@@ -6,10 +6,6 @@ import numpy as np
 def get_loss(opts):
     return {'KL': KLDivergence(), 'NLL': NegativeGaussianLogLikelihood()}
 
-def get_kl(opts):
-    return calculate_kl(logvar_prior, logvar, mu, mu_prior)
-
-
 class KLDivergence(nn.Module):
     """KL Divergence between two normal distributions."""
     def __init__(self):

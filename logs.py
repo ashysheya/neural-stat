@@ -25,6 +25,7 @@ class Logger:
         self.experiment_name = f'{opts.experiment}_{now_str}'
         self.log_dir = opts.log_dir
         self.save_dir = opts.save_dir
+        self.batch_size = opts.batch_size
 
         os.makedirs(f'{self.save_dir}/{self.experiment_name}', exist_ok=True)
 
@@ -102,7 +103,7 @@ class Logger:
                    f'{self.save_dir}/{self.experiment_name}/{model_name}')
 
         if not self.tensorboard:
-            with open(f'{self.log_dir}/{self.experiment_name}/losses', 'wb') as f:
+            with open(f'{self.save_dir}/{self.experiment_name}/losses', 'wb') as f:
                 pickle.dump(self.losses_dict, f)
 
 
@@ -145,16 +146,15 @@ class Logger:
             ax.set_ylim([0, 27])
             ax.set_aspect('equal', adjustable='box')
 
-        #print(inputs[0])
-        #print(inputs[:,0])
-        #print(samples[0])
 
         if inputs.shape[0] > 5:
             for i in range(ncols):
                 # fill one column of subplots per loop iteration
                 plot_single(axs[0, i], inputs[i], s=5, color='C0')
                 plot_single(axs[1, i], samples[i], s=5, color='C1')
+
                 if summaries is not None:
+                	### TO DO: 6 point summary for inputs on the first axs!
                     plot_single(axs[1, i], summaries[i], s=10, color='C2')
 
             fig.subplots_adjust(wspace=0.05, hspace=0.05)

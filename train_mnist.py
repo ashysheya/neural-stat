@@ -7,8 +7,9 @@ from torch.autograd import Variable
 import numpy as np
 from torch.utils.data import DataLoader
 from models_mnist import get_model, get_stats
-from losses import get_loss, get_kl
+from losses import get_loss
 from logs import get_logger
+from itertools import combinations
 
 parser = argparse.ArgumentParser(description='Arguments for training procedure')
 
@@ -33,7 +34,7 @@ parser.add_argument('--lr', type=float, default=1e-4, help='learning rate for op
 
 parser.add_argument('--beta1', type=float, default=0.9, help='beta1 for optimizer')
 
-parser.add_argument('--num_epochs', type=int, default=10, help='number of training epochs')
+parser.add_argument('--num_epochs', type=int, default=2, help='number of training epochs')
 
 # Architecture options
 parser.add_argument('--context_dim', type=int, default=64, help='context dimension')
@@ -85,34 +86,30 @@ alpha = 0
 
 stats = get_stats(opts).cuda()
 
-'''
-# put it here FOR NOW
+
+# https://github.com/conormdurkan/neural-statistician/blob/master/spatial/spatialmodel.py
+def summarize_batch(inputs, output_size=6):
+    summaries = []
+    for dataset in tqdm.tqdm(inputs):
+        summary = summarize(dataset, output_size=output_size)
+        summaries.append(summary)
+    summaries = torch.cat(summaries)
+    return summaries
+
 def calculate_kl(logvar_prior, logvar, mu, mu_prior):
     kl_val = 0.5 * logvar_prior - 0.5 * logvar
     kl_val += (torch.exp(logvar) + (mu - mu_prior) ** 2) / 2 / (
         torch.exp(logvar_prior))
     kl_val -= 0.5
     return kl_val.sum(dim=-1)
-'''
 
-# https://github.com/conormdurkan/neural-statistician/blob/master/spatial/spatialmodel.py
-def summarize_batch(self, inputs, output_size=6):
-    summaries = []
-    for dataset in tqdm(inputs):
-        summary = self.summarize(dataset, output_size=output_size)
-        summaries.append(summary)
-    summaries = torch.cat(summaries)
-    return summaries
+def summarize(dataset, output_size=6):
 
-def summarize(self, dataset, output_size=6):
-    """
-    There's some nasty indexing going on here because pytorch doesn't
-    have numpy indexing yet. This will be fixed soon.
-    """
     # cast to torch Cuda Variable and reshape
-    dataset = dataset.view(1, self.sample_size, self.n_features)
+    sample_size = 50
+    dataset = dataset.view(1, sample_size, 2)
     # get approximate posterior over full dataset
-    c_mean_full, c_logvar_full = stats(dataset, summarize=True)
+    c_mean_full, c_logvar_full, _, _ = stats({'train_data': dataset, 'train': True})
 
     # iteratively discard until dataset is of required size
     while dataset.size(1) != output_size:
@@ -127,8 +124,17 @@ def summarize(self, dataset, output_size=6):
             subset = dataset.index_select(1, ix)
 
             # calculate approximate posterior over subset
-            c_mean, c_logvar = stats(subset, summarize=True)
-            kl = get_kl(c_logvar_full, c_logvar, c_mean, c_mean_full)
+            c_mean, c_logvar, _, _ = stats({'train_data': subset, 'train': True})
+
+            # kl_input = {'logvars_context_prior': c_logvar_full,
+            #          'logvars_context': c_logvar,
+            #          'means_context': c_mean, 
+            #          'means_context_prior': c_mean_full}
+
+            # kl = loss_dict['KL'].forward(kl_input)
+            
+            ##### TypeError: can't multiply sequence by non-int of type 'float'
+            kl = calculate_kl(c_logvar_full, c_logvar, c_mean, c_mean_full)
             kl_divergences.append(kl.data[0])
 
         # determine which sample we want to remove
@@ -177,61 +183,48 @@ for epoch in tqdm.tqdm(range(opts.num_epochs)):
         count = 0
 
         for data_dict in test_dataloader:
-            model.eval()
             data = data_dict['datasets'].cuda()
             output_dict = model.forward(data, train = False)
             losses = {'NLL': loss_dict['NLL'].forward(output_dict)}
 
             logger.log_data(output_dict, losses, split='test')
 
-
+            # plot examples in the first batch
             if count == 0:
                 input_plot = data
-                sample_plot = output_dict['means_x']
+                sample_plot = output_dict['means_x']       
 
             count += 1
 
-            #input_plot.append(data.data.cpu().numpy())
-            #sample_plot.append(output_dict['means_x'].view(-1, 50, 2).data.cpu().numpy())
         # check opts.save_freq
-        #logger.grid(np.array(input_plot), np.array(sample_plot), ncols = 10, mode = 'test')
-        logger.grid(input_plot, sample_plot, ncols = 10, mode = 'test')
+        if epoch%opts.save_freq == 0:
+            logger.grid(input_plot, sample_plot, ncols = 10, mode = 'test')
+            logger.save_model(model, str(epoch))
+
+logger.save_model(model, 'last')
 
 
-        ### TO DO: 1. plot summary at the end, 2. save model parameters
-        '''
-        # summarize test batch at end of training
+### TO DO: plot summary at the end & highlighted dots, also summary for inputs!
+### TO DO: double check the intermediate plots of lines! are they normal/ind sampled? check prior of c used for sampling
+    
+count = 0
+# summarise test batch at end of training
+for data_dict in test_dataloader:
+    if count != 0:
+        break
+    else:
         n = 10  # number of datasets to summarize
-        inputs = Variable(test_batch[0].cuda(), volatile=True)
+        inputs = Variable(data_dict['datasets'].cuda())
+        print(inputs.shape)
         print("Summarizing...")
-        summaries = model.summarize_batch(inputs[:n], output_size=6)
+        summaries = summarize_batch(inputs[:n], output_size=6)
         print("Summary complete!")
 
         # plot summarized datasets
         samples = model.forward(inputs, train = False)
-        #filename = time_stamp + '-summary.png'
-        grid(inputs, samples, summaries=summaries, ncols=n, mode = 'summary')
-        '''
+        grid(inputs, samples['means_x'], summaries=summaries, ncols=n, mode = 'summary')
+
+        count += 1
+            
 
 
-
-'''
-            if opts.experiment == 'mnist':
-                labels_test.append(data_dict['targets'].numpy())
-                contexts_test.append(output_dict['means_context'].cpu().numpy())
-    
-    if opts.experiment == 'mnist':    
-        contexts_test = np.concatenate(contexts_test, axis=0)
-        labels_test = np.concatenate(labels_test, axis=0)
-
-
-    
-    if epoch%opts.save_freq == 0:
-        if opts.experiment == 'synthetic':
-            logger.log_embedding(contexts_test, labels_test, means_test, variances_test)
-        logger.save_model(model, str(epoch))
-
-if opts.experiment == 'synthetic':
-    logger.log_embedding(contexts_test, labels_test, means_test, variances_test)
-logger.save_model(model, 'last')
-'''

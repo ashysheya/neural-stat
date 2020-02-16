@@ -36,20 +36,20 @@ class MnistDataset(Dataset):
 
         if mode == 'train':
             # to speed up debugging
-            #spatial = create_spatial_highlight(x_train_resize[:1000], y_train_onehot[:1000], sample_size=50, sample_size_highlight=6, plot=False)
-            spatial = create_spatial_highlight(x_train_resize, y_train_onehot, sample_size=50, sample_size_highlight=6, plot=False)
+            spatial = create_spatial_highlight(x_train_resize[:1000], y_train_onehot[:1000], sample_size=50, sample_size_highlight=6, plot=False)
+            #spatial = create_spatial_highlight(x_train_resize, y_train_onehot, sample_size=50, sample_size_highlight=6, plot=False)
             self.spatial = np.array(spatial).astype(np.float32)
             # to speed up debugging
-            #self.labels = y_train_onehot[:1000]
-            self.labels = y_train_onehot
+            self.labels = y_train_onehot[:1000]
+            #self.labels = y_train_onehot
         elif mode == 'test':
             # to speed up debugging
-            #spatial = create_spatial_highlight(x_test_resize[:500], y_test_onehot[:500], sample_size=50, sample_size_highlight=6, plot=False)
-            spatial = create_spatial_highlight(x_test_resize, y_test_onehot, sample_size=50, sample_size_highlight=6, plot=False)
+            spatial = create_spatial_highlight(x_test_resize[:500], y_test_onehot[:500], sample_size=50, sample_size_highlight=6, plot=False)
+            #spatial = create_spatial_highlight(x_test_resize, y_test_onehot, sample_size=50, sample_size_highlight=6, plot=False)
             self.spatial = np.array(spatial).astype(np.float32)
             # to speed up debugging
-            #self.labels = y_test_onehot[:500]
-            self.labels = y_test_onehot
+            self.labels = y_test_onehot[:500]
+            #self.labels = y_test_onehot
 
 
         #ix = self.labels[:, 1] != 1
@@ -67,7 +67,6 @@ class MnistDataset(Dataset):
                 'targets': self.labels[idx]}                       # have shape (num_img, 10), where 10 is one-hot encodding
 
 
-# TODO: sample from dataset needed, sample_size may change?
 def create_spatial_highlight(images, labels, sample_size=50, sample_size_highlight=6, plot=False):
     spatial = np.zeros([images.shape[0], sample_size, 2])
     spatial_highlight = np.zeros([images.shape[0], sample_size_highlight, 2])
