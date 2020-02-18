@@ -83,6 +83,6 @@ with torch.no_grad():
         data_gen = make_grid(samples, nrow=opts.num_samples_per_dataset)
         data_real = make_grid(data, nrow=opts.num_data_per_dataset)
 
-        image = np.concatenate([data_real, data_gen], axis=-1)
+        image = np.concatenate([1 - data_real, data_gen], axis=-1)
         im = Image.fromarray(np.uint8(image.transpose((1, 2, 0))*255))
         im.save(f'{opts.result_dir}/{opts.model_name}/{dataset_name}_{i}.png')

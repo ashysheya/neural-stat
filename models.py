@@ -88,6 +88,19 @@ class NeuralStatistician(nn.Module):
 
         return outputs
 
+    def context_params(self, datasets):
+        outputs = {'train_data': datasets, 'train': False}
+
+        shared_encoder_dict = self.shared_encoder(outputs)
+        outputs.update(shared_encoder_dict)
+
+        # get context mu, logsigma of size (batch_size, context_dim): q(c|D)
+        context_dict = self.statistic_network(outputs)
+        outputs.update(context_dict)
+
+        return outputs
+
+
     @staticmethod
     def init_weights(m):
         if type(m) == nn.Linear or type(m) == nn.Conv2d:
@@ -179,9 +192,12 @@ class StatisticNetwork(nn.Module):
             prestat_vector = prestat_vector.view(data_size[0], data_size[1], -1).mean(dim=1)
         else:
             mask_first = torch.ones((data_size[0], 1, 1)).cuda()
-            p = 0.5 if input_dict['train'] else 1.0
-            mask = torch.bernoulli(p*torch.ones((data_size[0], data_size[1] - 1, 1))).cuda()
-            mask = torch.cat([mask_first, mask], 1)
+            if data_size[1] - 1 > 0:
+                p = 0.8 if input_dict['train'] else 1.0
+                mask = torch.bernoulli(p*torch.ones((data_size[0], data_size[1] - 1, 1))).cuda()
+                mask = torch.cat([mask_first, mask], 1)
+            else:
+                mask = mask_first
 
             prestat_vector = prestat_vector.view(data_size[0], data_size[1], -1)
             prestat_vector = prestat_vector*mask.expand_as(prestat_vector)

@@ -25,7 +25,7 @@ class KLDivergence(nn.Module):
                                              input_dict['means_context'],
                                              input_dict['means_context_prior'])
         kl_value_z = 0
-
+        
         for logvar_prior, logvar, mu, mu_prior in zip(input_dict['logvars_latent_z_prior'],
                                                       input_dict['logvars_latent_z'],
                                                       input_dict['means_latent_z'],

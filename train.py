@@ -76,11 +76,12 @@ test_dataloader = DataLoader(test_dataset, batch_size=opts.batch_size,
     shuffle=True, num_workers=10)
 
 model = get_model(opts).cuda()
+
 loss_dict = get_loss(opts)
 logger = get_logger(opts)
 optimizer = optim.Adam(model.parameters(), lr=opts.lr, betas=(opts.beta1, 0.999))
 
-alpha = 0.0
+alpha = 1.0
 
 for epoch in tqdm.tqdm(range(opts.num_epochs)):
     model.train()
@@ -99,6 +100,10 @@ for epoch in tqdm.tqdm(range(opts.num_epochs)):
         losses['sum'] = (1 + alpha)*losses['NLL'] + losses['KL']/(1 + alpha)
 
         losses['sum'].backward()
+
+        for param in model.parameters():
+            if param.grad is not None:
+                param.grad.data = param.grad.data.clamp(min=-0.5, max=0.5)
 
         optimizer.step()
 
