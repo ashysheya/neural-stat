@@ -126,3 +126,37 @@ class Logger:
         if not self.tensorboard:
             with open(f'{self.log_dir}/{self.experiment_name}/losses', 'wb') as f:
                 pickle.dump(self.losses_dict, f)
+
+
+    # function for visualisation in the mnist experiment
+    # adapt from https://github.com/conormdurkan/neural-statistician/blob/master/spatial/spatialplot.py
+    def grid(self, inputs, samples, summaries=None, ncols=10, mode = 'test'):
+
+        inputs = inputs.data.cpu().numpy()
+        samples = samples.view(-1, 50, 2).data.cpu().numpy()
+        if summaries is not None:
+            summaries = summaries.data.cpu().numpy()
+        fig, axs = plt.subplots(nrows=2, ncols=ncols, figsize=(ncols, 2))
+
+        def plot_single(ax, points, s, color):
+            ax.scatter(points[:, 0], points[:, 1], s=s,  color=color)
+            ax.set_xticks([])
+            ax.set_yticks([])
+            ax.set_xlim([0, 27])
+            ax.set_ylim([0, 27])
+            ax.set_aspect('equal', adjustable='box')
+
+        if inputs.shape[0] > 5:
+            for i in range(ncols):
+                plot_single(axs[0, i], inputs[i], s=5, color='C0')
+                plot_single(axs[1, i], samples[i], s=5, color='C1')
+
+                if summaries is not None:
+                    plot_single(axs[0, i], summaries[i], s=10, color='red')
+
+            fig.subplots_adjust(wspace=0.05, hspace=0.05)
+            plt.tight_layout()
+
+        fig.savefig(f'{self.log_dir}/{self.experiment_name}/{self.embedding_step}_gen_{mode}.png')
+        self.embedding_step += 1
+
