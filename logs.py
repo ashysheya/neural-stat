@@ -27,6 +27,7 @@ class Logger:
 
         now = datetime.now()
         now_str = now.strftime("%d:%m:%Y_%H:%M:%S")
+        self.experiment = opts.experiment
         self.experiment_name = f'{opts.experiment}_{now_str}'
         self.log_dir = opts.log_dir
         self.save_dir = opts.save_dir
@@ -74,9 +75,7 @@ class Logger:
         idx_dict = {0: 'exponential', 1: 'gaussian', 2: 'uniform', 3: 'laplace'}
 
         for i, color in enumerate(colors):
-            ## Take indices of the labels for each distribution
             idxs = (labels == i)
-            ## Plot the context means
             ax.scatter(contexts[idxs, 0], contexts[idxs, 1], contexts[idxs, 2],
                 color=color, label=idx_dict[i])
 
@@ -95,7 +94,6 @@ class Logger:
             fig = plt.figure()
             ax = fig.add_subplot(111, projection='3d')
 
-            ## Plot all context means, and color them according to mean / variance.
             cax = ax.scatter(contexts[:, 0], contexts[:, 1], contexts[:, 2],
                              c=statistic)
             fig.colorbar(cax)
@@ -111,7 +109,11 @@ class Logger:
         self.embedding_step += 1
 
     def log_image(self, output_data, split):
-        data_gen = output_data['means_x'].data.cpu()
+        if self.experiment == 'omniglot':
+            data_gen = output_data['proba_x'].data.cpu()
+        else:
+            data_gen = output_data['means_x'].data.cpu()
+
         nrows = output_data['train_data'].size()[1]
         data_real = output_data['train_data'].view_as(data_gen).data.cpu()
 
@@ -138,3 +140,37 @@ class Logger:
         if not self.tensorboard:
             with open(f'{self.log_dir}/{self.experiment_name}/losses', 'wb') as f:
                 pickle.dump(self.losses_dict, f)
+
+
+    # function for visualisation in the mnist experiment
+    # adapt from https://github.com/conormdurkan/neural-statistician/blob/master/spatial/spatialplot.py
+    def grid(self, inputs, samples, summaries=None, ncols=10, mode = 'test'):
+
+        inputs = inputs.data.cpu().numpy()
+        samples = samples.view(-1, 50, 2).data.cpu().numpy()
+        if summaries is not None:
+            summaries = summaries.data.cpu().numpy()
+        fig, axs = plt.subplots(nrows=2, ncols=ncols, figsize=(ncols, 2))
+
+        def plot_single(ax, points, s, color):
+            ax.scatter(points[:, 0], points[:, 1], s=s,  color=color)
+            ax.set_xticks([])
+            ax.set_yticks([])
+            ax.set_xlim([0, 27])
+            ax.set_ylim([0, 27])
+            ax.set_aspect('equal', adjustable='box')
+
+        if inputs.shape[0] > 5:
+            for i in range(ncols):
+                plot_single(axs[0, i], inputs[i], s=5, color='C0')
+                plot_single(axs[1, i], samples[i], s=5, color='C1')
+
+                if summaries is not None:
+                    plot_single(axs[0, i], summaries[i], s=10, color='red')
+
+            fig.subplots_adjust(wspace=0.05, hspace=0.05)
+            plt.tight_layout()
+
+        fig.savefig(f'{self.log_dir}/{self.experiment_name}/{self.embedding_step}_gen_{mode}.png')
+        self.embedding_step += 1
+
