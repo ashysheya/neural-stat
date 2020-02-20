@@ -25,6 +25,7 @@ class SyntheticDataset(Dataset):
         targets = gen_data[1]
         self.means = gen_data[2]
         self.variances = gen_data[3]
+        # Convert strings to numeric labels
         self.targets = np.zeros_like(targets, dtype=np.int)
         self.idx_dict = {0: 'exponential', 1: 'gaussian', 2: 'uniform', 3: 'laplace'}
         for key in self.idx_dict:
