@@ -1,8 +1,8 @@
-
 import torch.nn as nn
 import torch
 import math
 from utils import sample_from_normal
+import torch.nn.functional as F
 
 def get_model(opts):
     return NeuralStatistician(opts)
@@ -12,7 +12,7 @@ def get_stats(opts):
 
 
 class NeuralStatistician(nn.Module):
-    """Class that represents the whole model form the paper"""
+    """Class that represents the whole model from the paper"""
 
     def __init__(self, opts):
         super(NeuralStatistician, self).__init__()
@@ -25,13 +25,14 @@ class NeuralStatistician(nn.Module):
         self.latent_decoder_network = LatentDecoderNetwork(opts.experiment, 
             opts.num_stochastic_layers, opts.z_dim, opts.context_dim)
         self.observation_decoder_network = ObservationDecoderNetwork(opts.experiment, 
-            opts.num_stochastic_layers, opts.z_dim, opts.context_dim, opts.x_dim)
+            opts.num_stochastic_layers, opts.z_dim, opts.context_dim, opts.h_dim, opts.x_dim)
 
         self.apply(self.init_weights)
 
     def forward(self, datasets, train=True):
         outputs = {'train_data': datasets, 'train': train}
 
+        # get encoded version of input: x-->h
         shared_encoder_dict = self.shared_encoder(outputs)
         outputs.update(shared_encoder_dict)
 
@@ -67,7 +68,7 @@ class NeuralStatistician(nn.Module):
         outputs.update(context_dict)
 
         # get parameters for latent variables prior: p(z_1, .., z_L|c)
-        latent_variables_dict = self.latent_decoder_network.sample(outputs, 
+        latent_variables_dict = self.latent_decoder_network.sample(outputs,
             num_samples_per_dataset)
         outputs.update(latent_variables_dict)
 
@@ -83,7 +84,7 @@ class NeuralStatistician(nn.Module):
         context_prior_dict = self.context_prior.sample(num_datasets)
         outputs.update(context_prior_dict)
 
-        latent_variables_dict = self.latent_decoder_network.sample(outputs, 
+        latent_variables_dict = self.latent_decoder_network.sample(outputs,
             num_samples_per_dataset)
         outputs.update(latent_variables_dict)
 
@@ -118,7 +119,60 @@ class SharedEncoder(nn.Module):
         super(SharedEncoder, self).__init__()
         self.experiment = experiment
 
-        if self.experiment == 'omniglot':
+        if self.experiment == 'youtube':
+            # Youtube shared encoder is as follows:
+            # - 2x{conv2d 32 feature maps with 3x3 kernels and ELU activations}
+            # - conv2d 32 feature maps with 3x3 kernels, stride 2 and ELU activations
+            # - 2x{conv2d 64 feature maps with 3x3 kernels and ELU activations}
+            # - conv2d 64 feature maps with 3x3 kernels, stride 2 and ELU activations
+            # - 2x{conv2d 128 feature maps with 3x3 kernels and ELU activations}
+            # - conv2d 128 feature maps with 3x3 kernels, stride 2 and ELU activations
+            # - 2x{conv2d 256 feature maps with 3x3 kernels and ELU activations}
+            # - conv2d 256 feature maps with 3x3 kernels, stride 2 and ELU activations
+            # All conv2d layers use batch normalization
+            # Input shape is (-1, 3, 64, 64)
+            self.model = nn.Sequential(nn.Conv2d(3, 32, kernel_size=3, padding=1, stride=1),
+                                       nn.BatchNorm2d(num_features=32),
+                                       nn.ELU(inplace=True),
+                                       nn.Conv2d(32, 32, kernel_size=3, padding=1, stride=1),
+                                       nn.BatchNorm2d(num_features=32),
+                                       nn.ELU(inplace=True),
+                                       nn.Conv2d(32, 32, kernel_size=3, padding=1, stride=2),
+                                       nn.BatchNorm2d(num_features=32),
+                                       nn.ELU(inplace=True),
+                                       # Shape is now (-1, 32, 32, 32)
+                                       nn.Conv2d(32, 64, kernel_size=3, padding=1, stride=1),
+                                       nn.BatchNorm2d(num_features=64),
+                                       nn.ELU(inplace=True),
+                                       nn.Conv2d(64, 64, kernel_size=3, padding=1, stride=1),
+                                       nn.BatchNorm2d(num_features=64),
+                                       nn.ELU(inplace=True),
+                                       nn.Conv2d(64, 64, kernel_size=3, padding=1, stride=2),
+                                       nn.BatchNorm2d(num_features=64),
+                                       nn.ELU(inplace=True),
+                                       # Shape is now (-1, 64, 16, 16)
+                                       nn.Conv2d(64, 128, kernel_size=3, padding=1, stride=1),
+                                       nn.BatchNorm2d(num_features=128),
+                                       nn.ELU(inplace=True),
+                                       nn.Conv2d(128, 128, kernel_size=3, padding=1, stride=1),
+                                       nn.BatchNorm2d(num_features=128),
+                                       nn.ELU(inplace=True),
+                                       nn.Conv2d(128, 128, kernel_size=3, padding=1, stride=2),
+                                       nn.BatchNorm2d(num_features=128),
+                                       nn.ELU(inplace=True),
+                                       # Shape is now (-1, 128, 8, 8)
+                                       nn.Conv2d(128, 256, kernel_size=3, padding=1, stride=1),
+                                       nn.BatchNorm2d(num_features=256),
+                                       nn.ELU(inplace=True),
+                                       nn.Conv2d(256, 256, kernel_size=3, padding=1, stride=1),
+                                       nn.BatchNorm2d(num_features=256),
+                                       nn.ELU(inplace=True),
+                                       nn.Conv2d(256, 256, kernel_size=3, padding=1, stride=2),
+                                       nn.BatchNorm2d(num_features=256),
+                                       nn.ELU(inplace=True))
+                                       # Shape is now (-1, 256, 4, 4)
+
+        elif self.experiment == 'omniglot':
             in_channels = 1
             module_list = []
             for i in [64, 128, 256]:
@@ -137,17 +191,15 @@ class SharedEncoder(nn.Module):
             self.model = nn.Sequential(*module_list)
 
     def forward(self, input_dict):
-        if self.experiment == 'synthetic':
+        if self.experiment == 'synthetic' or self.experiment == 'mnist':
             return {'train_data_encoded': input_dict['train_data']}
 
-        elif self.experiment == 'mnist':
-            return {'train_data_encoded': input_dict['train_data']}
-
-        elif self.experiment == 'omniglot':
+        elif self.experiment == 'omniglot' or self.experiment == 'youtube':
             datasets = input_dict['train_data']
             data_size = datasets.size()
-            encoded = self.model(datasets.view(data_size[0] * data_size[1], *data_size[2:]))
+            encoded = self.model(datasets.view(data_size[0]*data_size[1], *data_size[2:]))
             encoded = encoded.view(data_size[0], data_size[1], -1).contiguous()
+            
             return {'train_data_encoded': encoded}
 
 
@@ -174,6 +226,15 @@ class StatisticNetwork(nn.Module):
                                                nn.Linear(128, 128),
                                                nn.ReLU(True),
                                                nn.Linear(128, context_dim*2))
+
+        elif experiment == 'youtube':
+            self.before_pooling = nn.Sequential(nn.Linear(h_dim, 1000),
+                                                nn.ELU(inplace=True))
+            self.after_pooling = nn.Sequential(nn.Linear(1000, 1000),
+                                               nn.ELU(inplace=True),
+                                               nn.Linear(1000, 1000),
+                                               nn.ELU(inplace=True),
+                                               nn.Linear(1000, context_dim*2))
 
          elif experiment == 'mnist':
             # in mnist experiment h_dim = 2
@@ -203,10 +264,11 @@ class StatisticNetwork(nn.Module):
 
     def forward(self, input_dict):
         """
-        :param input_dict: dictionary that hold training data -
-        torch.FloatTensor of size (batch_size, samples_per_dataset, sample_size)
+        :param input_dict: dictionary that hold training data / encoded data -
+        torch.FloatTensor of size (batch_size, samples_per_dataset, sample_dim)
         :return dictionary of mu, logsigma and context sample for each dataset
         """
+        # If encoded data exists, take this - else take non-transformed input data
         datasets = input_dict['train_data_encoded']
         data_size = datasets.size()
         prestat_vector = self.before_pooling(datasets.view(data_size[0]*data_size[1], 
@@ -236,12 +298,17 @@ class StatisticNetwork(nn.Module):
         means = outputs[:, :self.context_dim]
         logvars = torch.clamp(outputs[:, self.context_dim:], -10, 10)
         samples = sample_from_normal(means, logvars)
-        samples_expanded = samples[:, None].expand(-1, datasets.size()[1], -1).contiguous()
+        samples_expanded = samples[:, None].expand(-1, data_size[1], -1).contiguous()
         samples_expanded = samples_expanded.view(-1, self.context_dim)
+
         return {'means_context': means,
                 'logvars_context': logvars,
                 'samples_context': samples, 
                 'samples_context_expanded': samples_expanded}
+
+    def sample(self, input_dict):
+        output_dict = self.forward(input_dict)
+        return {'samples_context': output_dict['means_context']}
 
     def sample(self, input_dict):
         output_dict = self.forward(input_dict)
@@ -281,6 +348,12 @@ class ContextPriorNetwork(nn.Module):
             logvars = torch.zeros_like(means).cuda()
             return {'samples_context': sample_from_normal(means, logvars)}
 
+    def sample(self, num_datasets):
+        if self.type_prior == 'standard':
+            means = torch.zeros((num_datasets, self.context_dim)).cuda()
+            logvars = torch.zeros_like(means).cuda()
+            return {'samples_context': sample_from_normal(means, logvars)}
+
 
 class InferenceNetwork(nn.Module):
     """Variational approximation q(z_1, ..., z_L|c, x)."""
@@ -289,7 +362,7 @@ class InferenceNetwork(nn.Module):
         :param num_stochastic_layers: number of stochastic layers in the model
         :param z_dim: dimension of each stochastic layer
         :param context_dim: dimension of c
-        :param h_dim: dimension of h
+        :param h_dim: dimension of (encoded) input
         """
         super(InferenceNetwork, self).__init__()
         self.num_stochastic_layers = num_stochastic_layers
@@ -308,7 +381,18 @@ class InferenceNetwork(nn.Module):
                                              nn.ReLU(True),
                                              nn.Linear(128, 128),
                                              nn.ReLU(True),
-                                             nn.Linear(128, z_dim*2))] 
+                                             nn.Linear(128, z_dim*2))]
+                input_dim = self.context_dim + self.z_dim + self.h_dim
+
+        elif experiment == 'youtube':
+            for i in range(self.num_stochastic_layers):
+                # In repo, instead of concatenating directly the inputs, they created different embeddings for c, h and
+                # z_i with one hidden layer for each. Then they concatenate, and apply a nonlinearity. But in paper,
+                # state that h and c should be concatenated and THEN use a fully-connected layer, so will use this.
+                # Do same as paper: FC layer with 1000 units and ReLU, and FC layers to mean and logvar
+                self.model += [nn.Sequential(nn.Linear(input_dim, 1000),
+                                             nn.ELU(inplace=True),
+                                             nn.Linear(1000, z_dim*2))]
                 input_dim = self.context_dim + self.z_dim + self.h_dim
 
         elif experiment == 'mnist':
@@ -343,21 +427,22 @@ class InferenceNetwork(nn.Module):
         context_expanded = input_dict['samples_context_expanded']
         datasets = input_dict['train_data_encoded']
         datasets_raveled = datasets.view(-1, self.h_dim)
-        # Input has dimension (batch_size*num_datapoints_per_dataset, sample_size+context_dim)
         current_input = torch.cat([context_expanded, datasets_raveled], dim=1)
 
         outputs = {'means_latent_z': [],
                    'logvars_latent_z': [],
                    'samples_latent_z': []}
 
+        # Iterate over each module in the model: the n_stochastic_layers different networks
         for module in self.model:
             current_output = module.forward(current_input)
             means = current_output[:, :self.z_dim]
             logvars = torch.clamp(current_output[:, self.z_dim:], -10, 10)
             samples = sample_from_normal(means, logvars)
-            # p(z_i|z_{i+1},c) follows normal distribution
-            current_input = torch.cat([context_expanded, datasets_raveled, samples], dim=1)  
-            outputs['means_latent_z'] += [means]  
+
+            current_input = torch.cat([context_expanded, datasets_raveled, samples], dim=1)
+
+            outputs['means_latent_z'] += [means]
             outputs['logvars_latent_z'] += [logvars]
             outputs['samples_latent_z'] += [samples]
 
@@ -391,6 +476,15 @@ class LatentDecoderNetwork(nn.Module):
                                              nn.Linear(128, z_dim*2))]
                 input_dim = self.context_dim + self.z_dim
 
+        elif experiment == 'youtube':
+            for i in range(self.num_stochastic_layers):
+                # Same as inference network: different way of doing it than repo.
+                # Same as paper: FC layer with 1000 units and ReLU, and FC layers to mean and logvar
+                self.model += [nn.Sequential(nn.Linear(input_dim, 1000),
+                                             nn.ELU(inplace=True),
+                                             nn.Linear(1000, z_dim*2))]
+                input_dim = self.context_dim + self.z_dim
+
         elif experiment == 'mnist':
             for i in range(self.num_stochastic_layers):
                 self.model += [nn.Sequential(nn.Linear(input_dim, 256),
@@ -413,7 +507,6 @@ class LatentDecoderNetwork(nn.Module):
                                              nn.Linear(256, z_dim * 2))]
                 input_dim = self.context_dim + self.z_dim
 
-
     def forward(self, input_dict):
         """
         Given context and samples of z_1, ..., z_{L-1} should return a dictionary with
@@ -426,7 +519,7 @@ class LatentDecoderNetwork(nn.Module):
         context_expanded = input_dict['samples_context_expanded']
         samples_latent_z = input_dict['samples_latent_z']
 
-        current_input = context_expanded
+        current_input = context_expanded  # Input for first stochastic layer p(z|c) is just c
         outputs = {'means_latent_z_prior': [],
                    'logvars_latent_z_prior': []}
 
@@ -437,6 +530,7 @@ class LatentDecoderNetwork(nn.Module):
             outputs['means_latent_z_prior'] += [means]
             outputs['logvars_latent_z_prior'] += [logvars]
             current_input = torch.cat([context_expanded, samples_latent_z[i]], dim=1)
+
         return outputs
 
     def sample(self, input_dict, num_samples_per_dataset):
@@ -446,7 +540,7 @@ class LatentDecoderNetwork(nn.Module):
 
         current_input = context_expanded
 
-        outputs = {'samples_latent_z': [], 
+        outputs = {'samples_latent_z': [],
                    'samples_context_expanded': context_expanded}
 
         for i, module in enumerate(self.model):
@@ -454,7 +548,9 @@ class LatentDecoderNetwork(nn.Module):
             means = current_output[:, :self.z_dim]
             logvars = torch.clamp(current_output[:, self.z_dim:], -10, 10)
             samples = sample_from_normal(means, logvars)
-            current_input = torch.cat([context_expanded, samples], dim=1)  
+
+            current_input = torch.cat([context_expanded, samples], dim=1)
+
             outputs['samples_latent_z'] += [samples]
 
         return outputs
@@ -491,7 +587,7 @@ class ObservationDecoderNetwork(nn.Module):
     Network that firstly concatenates z_1, ..., z_L, c to produce mu, sigma for x.
     Returns mu_x, sigma_x
     """
-    def __init__(self, experiment, num_stochastic_layers, z_dim, context_dim, x_dim):
+    def __init__(self, experiment, num_stochastic_layers, z_dim, context_dim, h_dim, x_dim):
         """
         :param num_stochastic_layers: number of stochastic layers in the model
         :param z_dim: dimension of each stochastic layer
@@ -503,6 +599,7 @@ class ObservationDecoderNetwork(nn.Module):
         self.num_stochastic_layers = num_stochastic_layers
         self.z_dim = z_dim
         self.context_dim = context_dim
+        self.h_dim = h_dim
         self.x_dim = x_dim
 
         input_dim = num_stochastic_layers*z_dim + context_dim
@@ -515,6 +612,63 @@ class ObservationDecoderNetwork(nn.Module):
                                        nn.Linear(128, 128),
                                        nn.ReLU(True),
                                        nn.Linear(128, x_dim * 2))
+
+        elif experiment == 'youtube':
+            # Shared learnable log variance parameter (from https://github.com/conormdurkan/neural-statistician)
+            self.logvar = nn.Parameter(torch.randn(1, 3, 64, 64).cuda())
+
+            self.pre_conv = nn.Sequential(nn.Linear(input_dim, 1000),
+                                          nn.ELU(inplace=True),
+                                          # Used h_dim=256*4*4, but in paper seems to say 256*8*8, which wouldn't work
+                                          # with the output image dimensions
+                                          nn.Linear(1000, h_dim))
+
+            self.conv = nn.Sequential(nn.Conv2d(256, 256, kernel_size=3, padding=1, stride=1),
+                                      # Dim is (-1, 256, 4, 4)
+                                      nn.BatchNorm2d(num_features=256),
+                                      nn.ELU(inplace=True),
+                                      nn.Conv2d(256, 256, kernel_size=3, padding=1, stride=1),
+                                      nn.BatchNorm2d(num_features=256),
+                                      nn.ELU(inplace=True),
+                                      # Check here: in repo, didn't specify padding for ConvTranspose2d
+                                      nn.ConvTranspose2d(256, 256, kernel_size=2, stride=2),
+                                      # Dim is now (-1, 256, 8, 8)
+                                      nn.BatchNorm2d(num_features=256),
+                                      nn.ELU(inplace=True),
+                                      nn.Conv2d(256, 128, kernel_size=3, padding=1, stride=1),
+                                      nn.BatchNorm2d(num_features=128),
+                                      nn.ELU(inplace=True),
+                                      nn.Conv2d(128, 128, kernel_size=3, padding=1, stride=1),
+                                      nn.BatchNorm2d(num_features=128),
+                                      nn.ELU(inplace=True),
+                                      nn.ConvTranspose2d(128, 128, kernel_size=2, stride=2),
+                                      # Dim is now (-1, 128, 16, 16)
+                                      nn.BatchNorm2d(num_features=128),
+                                      nn.ELU(inplace=True),
+                                      nn.Conv2d(128, 64, kernel_size=3, padding=1, stride=1),
+                                      nn.BatchNorm2d(num_features=64),
+                                      nn.ELU(inplace=True),
+                                      nn.Conv2d(64, 64, kernel_size=3, padding=1, stride=1),
+                                      nn.BatchNorm2d(num_features=64),
+                                      nn.ELU(inplace=True),
+                                      nn.ConvTranspose2d(64, 64, kernel_size=2, stride=2),
+                                      # Dim is now (-1, 64, 32, 32)
+                                      nn.BatchNorm2d(num_features=64),
+                                      nn.ELU(inplace=True),
+                                      nn.Conv2d(64, 32, kernel_size=3, padding=1, stride=1),
+                                      nn.BatchNorm2d(num_features=32),
+                                      nn.ELU(inplace=True),
+                                      nn.Conv2d(32, 32, kernel_size=3, padding=1, stride=1),
+                                      nn.BatchNorm2d(num_features=32),
+                                      nn.ELU(inplace=True),
+                                      nn.ConvTranspose2d(32, 32, kernel_size=2, stride=2),
+                                      # Dim is now (-1, 32, 64, 64)
+                                      nn.BatchNorm2d(num_features=32),
+                                      nn.ELU(inplace=True),
+                                      nn.Conv2d(32, 3, kernel_size=1),
+                                      # Dim is now (-1, 3, 64, 64)
+                                      ClampLayer(-10, 10)
+                                      )
 
         elif experiment == 'mnist':
             self.model = nn.Sequential(nn.Linear(input_dim, 256),
@@ -557,15 +711,18 @@ class ObservationDecoderNetwork(nn.Module):
         """
         Given sampled context and sampled latent z_i, should return parameters
         of the distribution for x.
-        Check here - input_dict['samples_latent_z']
-         has dimensions (n_stochastic_layer, batch_size, z_dim)
-        input_dict['samples_context'] has size (batch_size, context_dim)
-        What size do we want our input?
         """
         context_expanded = input_dict['samples_context_expanded']
-        ## z samples from InferenceNetwork
         latent_z = input_dict['samples_latent_z']
         inputs = torch.cat([context_expanded] + latent_z, dim=1)
+
+        if self.experiment == 'youtube':
+            pre_conv_output = self.pre_conv(inputs)
+            pre_conv_output = pre_conv_output.view(-1, 256, 4, 4)
+            x_mean = F.sigmoid(self.conv(pre_conv_output))
+            x_logvar = self.logvar.expand_as(x_mean)
+            return {'means_x': x_mean,
+                    'logvars_x': x_logvar}
 
         outputs = self.model(inputs)
 

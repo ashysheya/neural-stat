@@ -6,7 +6,7 @@ from utils import generate_1d_datasets
 
 def get_dataset(opts, split='train'):
     """Function to get instance of SyntheticDataset given training options."""
-    if split=='train':
+    if split == 'train':
         return SyntheticDataset(opts.train_num_datasets_per_distr, opts.num_data_per_dataset)
     else:
         return SyntheticDataset(opts.test_num_datasets_per_distr, opts.num_data_per_dataset)

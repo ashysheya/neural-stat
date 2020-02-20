@@ -11,6 +11,11 @@ from mpl_toolkits.mplot3d import Axes3D
 from torchvision.utils import make_grid
 from PIL import Image
 
+def normalize_img(img):
+    img = img - img.min()
+    img = img / img.max()
+    return img
+
 def get_logger(opts):
     return Logger(opts)
 
@@ -22,6 +27,7 @@ class Logger:
 
         now = datetime.now()
         now_str = now.strftime("%d:%m:%Y_%H:%M:%S")
+        self.experiment = opts.experiment
         self.experiment_name = f'{opts.experiment}_{now_str}'
         self.log_dir = opts.log_dir
         self.save_dir = opts.save_dir
@@ -50,6 +56,7 @@ class Logger:
         self.iterations[split] += 1
 
     def log_embedding(self, contexts, labels, means, variances):
+
         # Plot by distribution
         fig = plt.figure()
         ax = fig.add_subplot(111, projection='3d')
@@ -97,9 +104,12 @@ class Logger:
 
         self.embedding_step += 1
 
-
     def log_image(self, output_data, split):
-        data_gen = output_data['proba_x'].data.cpu()
+        if self.experiment == 'omniglot':
+            data_gen = output_data['proba_x'].data.cpu()
+        else:
+            data_gen = output_data['means_x'].data.cpu()
+
         nrows = output_data['train_data'].size()[1]
         data_real = output_data['train_data'].view_as(data_gen).data.cpu()
 
@@ -111,12 +121,12 @@ class Logger:
             self.writer.add_image(f'{split}_real', data_real, self.embedding_step)
 
         else:
-            im = Image.fromarray(np.uint8(data_gen.numpy().transpose((1, 2, 0))*255))
+            im = Image.fromarray(np.uint8(normalize_img(data_gen.numpy().transpose((1, 2, 0))) * 255))
             im.save(f'{self.log_dir}/{self.experiment_name}/{self.embedding_step}_gen_{split}.png')
-            im = Image.fromarray(np.uint8(data_real.numpy().transpose((1, 2, 0))*255))
+            im = Image.fromarray(np.uint8(normalize_img(data_real.numpy().transpose((1, 2, 0))) * 255))
             im.save(f'{self.log_dir}/{self.experiment_name}/{self.embedding_step}_real_{split}.png')
-        
-        if split == 'test':    
+
+        if split == 'test':
             self.embedding_step += 1
 
     def save_model(self, model, model_name):
