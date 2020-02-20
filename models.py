@@ -13,19 +13,16 @@ class NeuralStatistician(nn.Module):
 
     def __init__(self, opts):
         super(NeuralStatistician, self).__init__()
-
-        if opts.experiment == 'youtube' or opts.experiment == 'omniglot':
-            self.shared_encoder = SharedEncoder(opts.experiment)
-            opts.x_dim = 256*4*4  # Dimension of x in shared nets will be that of the encoded input h
-
-        self.statistic_network = StatisticNetwork(opts.experiment, opts.context_dim, opts.x_dim, opts.masked)
+        self.shared_encoder = SharedEncoder(opts.experiment)
+        self.statistic_network = StatisticNetwork(opts.experiment, opts.context_dim,
+            opts.h_dim, opts.masked)
         self.context_prior = ContextPriorNetwork(opts.context_dim, opts.type_prior)
         self.inference_network = InferenceNetwork(opts.experiment, opts.num_stochastic_layers,
-            opts.z_dim, opts.context_dim, opts.x_dim)
+            opts.z_dim, opts.context_dim, opts.h_dim)
         self.latent_decoder_network = LatentDecoderNetwork(opts.experiment, 
             opts.num_stochastic_layers, opts.z_dim, opts.context_dim)
         self.observation_decoder_network = ObservationDecoderNetwork(opts.experiment, 
-            opts.num_stochastic_layers, opts.z_dim, opts.context_dim, opts.x_dim)
+            opts.num_stochastic_layers, opts.z_dim, opts.context_dim, opts.h_dim, opts.x_dim)
 
         self.apply(self.init_weights)
 
@@ -33,9 +30,8 @@ class NeuralStatistician(nn.Module):
         outputs = {'train_data': datasets, 'train': train}
 
         # get encoded version of input: x-->h
-        if self.shared_encoder:
-            encoded_dict = self.shared_encoder(outputs)
-            outputs.update(encoded_dict)
+        shared_encoder_dict = self.shared_encoder(outputs)
+        outputs.update(shared_encoder_dict)
 
         # get context mu, logsigma of size (batch_size, context_dim): q(c|D)
         context_dict = self.statistic_network(outputs)
@@ -85,13 +81,27 @@ class NeuralStatistician(nn.Module):
         context_prior_dict = self.context_prior.sample(num_datasets)
         outputs.update(context_prior_dict)
 
-        latent_variables_dict = self.latent_decoder_network.sample(outputs, num_samples_per_dataset)
+        latent_variables_dict = self.latent_decoder_network.sample(outputs,
+            num_samples_per_dataset)
         outputs.update(latent_variables_dict)
 
         observation_dict = self.observation_decoder_network(outputs)
         outputs.update(observation_dict)
 
         return outputs
+
+    def context_params(self, datasets):
+        outputs = {'train_data': datasets, 'train': False}
+
+        shared_encoder_dict = self.shared_encoder(outputs)
+        outputs.update(shared_encoder_dict)
+
+        # get context mu, logsigma of size (batch_size, context_dim): q(c|D)
+        context_dict = self.statistic_network(outputs)
+        outputs.update(context_dict)
+
+        return outputs
+
 
     @staticmethod
     def init_weights(m):
@@ -160,28 +170,30 @@ class SharedEncoder(nn.Module):
                                        # Shape is now (-1, 256, 4, 4)
 
     def forward(self, input_dict):
-        datasets = input_dict['train_data']
-        data_size = datasets.size()  # Should be (batch_size, 5, 3, 64, 64)
+        if self.experiment == 'synthetic':
+            return {'train_data_encoded': input_dict['train_data']}
 
-        # Pass x as (-1, 3, 64, 64), i.e. (batch_size*5, 3, 64, 64)
-        h = self.model(datasets.view(data_size[0]*data_size[1], *data_size[2:]))
-        # Reshape as (batch_size, num_data_per_dataset, 256, 4, 4), i.e. probably (16, 5, 256, 4, 4)
-        h = h.view(data_size[0], data_size[1], 256, 4, 4).contiguous()
+        elif self.experiment == 'omniglot' or self.experiment == 'youtube':
+            datasets = input_dict['train_data']
+            data_size = datasets.size()  # Should be (batch_size, 5, 3, 64, 64) for youtube
+            # Pass x as (-1, 3, 64, 64), i.e. (batch_size*5, 3, 64, 64)
+            encoded = self.model(datasets.view(data_size[0]*data_size[1], *data_size[2:]))
+            encoded = encoded.view(data_size[0], data_size[1], -1).contiguous()
 
-        return {'encoded_data': h}  # encoded input has dim (batch_size, num_data_per_dataset, 256, 4, 4)
+            return {'train_data_encoded': encoded}
 
 
 class StatisticNetwork(nn.Module):
     """Variational approximation q(c|D)."""
-    def __init__(self, experiment, context_dim, x_dim, masked=False):
+    def __init__(self, experiment, context_dim, h_dim, masked=False):
         super(StatisticNetwork, self).__init__()
         self.experiment = experiment
         self.masked = masked
+        self.h_dim = h_dim
         self.context_dim = context_dim
-        self.x_dim = x_dim
 
         if experiment == 'synthetic':
-            self.before_pooling = nn.Sequential(nn.Linear(x_dim, 128),
+            self.before_pooling = nn.Sequential(nn.Linear(h_dim, 128),
                                                 nn.ReLU(True),
                                                 nn.Linear(128, 128),
                                                 nn.ReLU(True),
@@ -195,9 +207,9 @@ class StatisticNetwork(nn.Module):
                                                nn.ReLU(True),
                                                nn.Linear(128, context_dim*2))
 
-        elif experiment == "youtube":
-            # Output of the shared encoder has 256 feature maps, each 4x4: x_dim = 256*4*4=4096
-            self.before_pooling = nn.Sequential(nn.Linear(x_dim, 1000),
+        elif experiment == 'youtube':
+            # Output of the shared encoder has 256 feature maps, each 4x4: h_dim = 256*4*4=4096
+            self.before_pooling = nn.Sequential(nn.Linear(h_dim, 1000),
                                                 nn.ELU(inplace=True))
             # Check here: unsure about hidden layer dim and number of FC layers. Also, in paper specifies LINEAR
             # layers, but on repo used a non-linearity. So used ReLU, and same number of layers as in repo.
@@ -212,18 +224,17 @@ class StatisticNetwork(nn.Module):
         :param input_dict: dictionary that hold training data / encoded data -
         torch.FloatTensor of size (batch_size, samples_per_dataset, sample_dim)
         ## For synthetic data this is (16, 200, 1) by default
-        ## For faces data this is (16, 5, 256, 4, 4) after encoder
+        ## For youtube data this is (16, 5, 256, 4, 4) after encoder
         :return dictionary of mu, logsigma and context sample for each dataset
         """
         # If encoded data exists, take this - else take non-transformed input data
-        datasets = input_dict.get('encoded_data', 'train_data')
+        datasets = input_dict['train_data_encoded']
         data_size = datasets.size()
         # Pass all input vectors together: input to NN has size (batch_size*n_samples_per_dataset, vector_size)
         # For synthetic data the vector_size is 1, that's why the NN input is size 1 so the input has size (16*200, 1).
-        # For the faces dataset, the encoded input size is (batch_size, n_samples_per_dataset, 256, 4, 4), so need to
-        # unravel into (batch_size*n_samples_per_dataset, 256*4*4)
-        # prestat_vector = self.before_pooling(datasets.view(data_size[0]*data_size[1], np.prod(data_size[2:])))
-        prestat_vector = self.before_pooling(datasets.view(-1, self.x_dim))
+        # For the faces dataset, the encoded input size is (batch_size, n_samples_per_dataset, 256*4*4)
+        prestat_vector = self.before_pooling(datasets.view(data_size[0]*data_size[1],
+                *data_size[2:]))
         # The output prestat_vector is of size (16*200, 128) for synthetic data.
         # Calculate encoding v: this takes the size (16, 200, 128), and calculates the mean along dimension 1: i.e.
         # along the 200 samples of a given dataset. So first we need to change the prestat_vector view from
@@ -298,21 +309,20 @@ class ContextPriorNetwork(nn.Module):
 
 class InferenceNetwork(nn.Module):
     """Variational approximation q(z_1, ..., z_L|c, x)."""
-    def __init__(self, experiment, num_stochastic_layers, z_dim, context_dim, x_dim):
+    def __init__(self, experiment, num_stochastic_layers, z_dim, context_dim, h_dim):
         """
         :param num_stochastic_layers: number of stochastic layers in the model
         :param z_dim: dimension of each stochastic layer
         :param context_dim: dimension of c
-        :param x_dim: dimension of x (or its encoded version)
+        :param h_dim: dimension of (encoded) input
         """
         super(InferenceNetwork, self).__init__()
         self.num_stochastic_layers = num_stochastic_layers
         self.z_dim = z_dim    # dimension of each of z_i
         self.experiment = experiment
         self.context_dim = context_dim
-        self.x_dim = x_dim  # For faces data, x_dim = 256*4*4
-
-        input_dim = self.context_dim + self.x_dim
+        self.h_dim = h_dim
+        input_dim = self.context_dim + self.h_dim
         self.model = nn.ModuleList()
 
         if experiment == 'synthetic':
@@ -325,12 +335,10 @@ class InferenceNetwork(nn.Module):
                                              nn.ReLU(True),
                                              nn.Linear(128, z_dim*2))]
                 # The following stochastic layers also take previous stochastic layer as input
-                # TODO: what about z_L? 
-                input_dim = self.context_dim + self.z_dim + self.x_dim
+                input_dim = self.context_dim + self.z_dim + self.h_dim
 
         elif experiment == 'youtube':
             for i in range(self.num_stochastic_layers):
-                # TODO: Check here: unsure about hidden layer dim and number of FC layers.
                 # In repo, instead of concatenating directly the inputs, they created different embeddings for c, h and
                 # z_i with one hidden layer for each. Then they concatenate, and apply a nonlinearity. But in paper,
                 # state that h and c should be concatenated and THEN use a fully-connected layer, so will use this.
@@ -339,7 +347,7 @@ class InferenceNetwork(nn.Module):
                                              nn.ELU(inplace=True),
                                              nn.Linear(1000, z_dim*2))]
                 # The following stochastic layers also take previous stochastic layer as input
-                input_dim = self.context_dim + self.z_dim + self.x_dim
+                input_dim = self.context_dim + self.z_dim + self.h_dim
 
     def forward(self, input_dict):
         """
@@ -352,9 +360,9 @@ class InferenceNetwork(nn.Module):
         context_expanded = input_dict['samples_context_expanded']
         # For synthetic data, datasets has size (16, 200, 1), i.e. (batch_size, num_datapoints_per_dataset, sample_size)
         # For faces data, it is (16, 5, 256, 4, 4)
-        datasets = input_dict.get('encoded_data', 'train_data')
+        datasets = input_dict['train_data_encoded']
         # Make datasets of size (16*200, 1) for synthetic, (16*5, 256*4*4) for faces
-        datasets_raveled = datasets.view(-1, self.x_dim)
+        datasets_raveled = datasets.view(-1, self.h_dim)
         # Input has dimension (batch_size*num_datapoints_per_dataset, sample_size+context_dim)
         # Operation below concatenates the (16*200, 3) context samples with the (16*200, 1) samples to make the input
         # have size (16*200, 4)
@@ -416,7 +424,6 @@ class LatentDecoderNetwork(nn.Module):
 
         elif experiment == 'youtube':
             for i in range(self.num_stochastic_layers):
-                # TODO: Check here again for number of linear layers
                 # Same as inference network: different way of doing it than repo.
                 # Same as paper: FC layer with 1000 units and ReLU, and FC layers to mean and logvar
                 self.model += [nn.Sequential(nn.Linear(input_dim, 1000),
@@ -494,18 +501,19 @@ class ObservationDecoderNetwork(nn.Module):
     Network that firstly concatenates z_1, ..., z_L, c to produce mu, sigma for x.
     Returns mu_x, sigma_x
     """
-    def __init__(self, experiment, num_stochastic_layers, z_dim, context_dim, x_dim):
+    def __init__(self, experiment, num_stochastic_layers, z_dim, context_dim, h_dim, x_dim):
         """
         :param num_stochastic_layers: number of stochastic layers in the model
         :param z_dim: dimension of each stochastic layer
         :param context_dim: dimension of c
-        :param x_dim: dimension of x or its encoded version
+        :param x_dim: dimension of x
         """
         super(ObservationDecoderNetwork, self).__init__()
         self.experiment = experiment
         self.num_stochastic_layers = num_stochastic_layers
         self.z_dim = z_dim
         self.context_dim = context_dim
+        self.h_dim = h_dim
         self.x_dim = x_dim
 
         input_dim = num_stochastic_layers*z_dim + context_dim
@@ -525,9 +533,9 @@ class ObservationDecoderNetwork(nn.Module):
 
             self.pre_conv = nn.Sequential(nn.Linear(input_dim, 1000),
                                           nn.ELU(inplace=True),
-                                          # Used x_dim=256*4*4, but in paper seems to say 256*8*8, which wouldn't work
+                                          # Used h_dim=256*4*4, but in paper seems to say 256*8*8, which wouldn't work
                                           # with the output image dimensions
-                                          nn.Linear(1000, x_dim))
+                                          nn.Linear(1000, h_dim))
 
             self.conv = nn.Sequential(nn.Conv2d(256, 256, kernel_size=3, padding=1, stride=1),
                                       # Dim is (-1, 256, 4, 4)
@@ -593,13 +601,13 @@ class ObservationDecoderNetwork(nn.Module):
         if self.experiment == 'synthetic':
             # Output has size (16*200, x_dim*2) for synthetic case
             outputs = self.model(inputs)
-            x_mean = outputs[:, :self.x_dim]
-            x_logvar = torch.clamp(outputs[:, self.x_dim:], -10, 10)
+            return {'means_x': outputs[:, :self.x_dim],
+                    'logvars_x': torch.clamp(outputs[:, self.x_dim:], -10, 10)}
 
         elif self.experiment == 'youtube':
             pre_conv_output = self.pre_conv(inputs)
             pre_conv_output = pre_conv_output.view(-1, 256, 4, 4)
             x_mean = F.sigmoid(self.conv(pre_conv_output))  # Should be (batch_size*num_data_per_dataset, 3, 64, 64)
             x_logvar = self.logvar.expand_as(x_mean)
-
-        return {'means_x': x_mean, 'logvars_x': x_logvar}
+            return {'means_x': x_mean,
+                    'logvars_x': x_logvar}

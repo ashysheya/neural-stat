@@ -4,7 +4,14 @@ import numpy as np
 
 
 def get_loss(opts):
-    return {'KL': KLDivergence(), 'NLL': NegativeGaussianLogLikelihood()}
+
+    if opts.nll == 'gaussian':
+        nll = NegativeGaussianLogLikelihood()
+    else:
+        nll = NegativeBernoulliLogLikelihood()
+
+    return {'KL': KLDivergence(),
+            'NLL': nll}
 
 
 class KLDivergence(nn.Module):
@@ -60,13 +67,25 @@ class NegativeGaussianLogLikelihood(nn.Module):
         batch_size, sample_size = input_dict['train_data'].size()[:2]  # 16, 200 for the default synthetic dataset case
         observations = input_dict['train_data']  # for youtube, shape is (16, 5, 3, 64, 64)
         # logvars and means are (16*200, 1) for the default synthetic dataset case: make them (16, 200, 1)
-        # CHECK HERE: if x were e.g. 3-dimensional, would the result be (16, 200, 3)?
         # For youtube data, these originally have size (16*5, 3, 64, 64) - make them size (16, 5, 3, 64, 64)
         logvars = input_dict['logvars_x'].view_as(observations)
         means = input_dict['means_x'].view_as(observations)
         # Compute LL loss term R_D from equation (8) in paper.
         # LL = sum_i(-1/2*ln(2*pi*var_i) + (x_i-mu_i)**2/(2*var_i))
         log_likelihood = -0.5*logvars - 0.5 * np.log(2 * np.pi)
-        log_likelihood -= (means - observations) ** 2 / 2 / (torch.exp(logvars))
-        # Sum over all elements, and average over total number of samples for expectation
+        log_likelihood -= (means - observations) ** 2 / 2 / torch.exp(logvars)
+        return -log_likelihood.sum()/(batch_size*sample_size)
+
+
+class NegativeBernoulliLogLikelihood(nn.Module):
+    """Negative Bernoulli log likelihood of observations."""
+    def __init__(self):
+        super(NegativeBernoulliLogLikelihood, self).__init__()
+
+    def forward(self, input_dict):
+        batch_size, sample_size = input_dict['train_data'].size()[:2]
+        observations = input_dict['train_data']
+        probabilities = input_dict['proba_x'].view_as(observations)
+        log_likelihood = observations*torch.log(probabilities)
+        log_likelihood += (1 - observations)*torch.log(1 - probabilities)
         return -log_likelihood.sum()/(batch_size*sample_size)
