@@ -5,28 +5,14 @@ import tqdm
 from skimage.io import imread
 from torch.utils.data import Dataset
 
-# ## For testing
-# train_num_persons = 1595-200
-# test_num_persons = 100
-# num_data_per_dataset=5
-# data_dir = "C:/Users/Victor/Documents/Cambridge/Lent/MLMI4/Project/YouTubeFaces/resized_images_DB/"
-
-
-# ##For testing## def get_dataset(split='train'):
 def get_dataset(opts, split='train'):
     """Function to get instance of YoutubeDataset given training options."""
-    # ##For testing##
-    #splits = {'train': slice(0, 100),
-    #          'test': slice(100, 110),
-    #          'val': slice(110, 120)
-    #         }
 
     splits = {'train': slice(0, opts.train_num_persons),
               'test': slice(opts.train_num_persons, opts.train_num_persons + opts.test_num_persons),
               'val': slice(opts.train_num_persons + opts.test_num_persons, 1595)
              }
 
-# ##For testing##   return YoutubeDataset(data_dir, slice(0, 30), num_data_per_dataset)
     return YoutubeDataset(opts.data_dir, splits[split], opts.num_data_per_dataset)
 
 
