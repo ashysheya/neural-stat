@@ -11,7 +11,7 @@ from logs import get_logger
 from utils import summarize_batch
 
 # configuration for 'mnist' experienment
-# --experiment mnist --num_epochs 100 --context_dim 64 --num_stochastic_layers 3 --z_dim 2 --x_dim 2 --h_dim 2
+# --experiment 'mnist' --num_epochs 100 --context_dim 64 --num_stochastic_layers 3 --z_dim 2 --x_dim 2 --h_dim 2
 
 parser = argparse.ArgumentParser(description='Arguments for training procedure')
 

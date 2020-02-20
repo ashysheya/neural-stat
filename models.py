@@ -236,21 +236,21 @@ class StatisticNetwork(nn.Module):
                                                nn.ELU(inplace=True),
                                                nn.Linear(1000, context_dim*2))
 
-         elif experiment == 'mnist':
-            # in mnist experiment h_dim = 2
-            self.before_pooling = nn.Sequential(nn.Linear(h_dim, 256),
-                                                nn.ReLU(True),
-                                                nn.Linear(256, 256),
-                                                nn.ReLU(True),
-                                                nn.Linear(256, 256),
-                                                nn.ReLU(True))
-            self.after_pooling = nn.Sequential(nn.Linear(256, 256),
-                                               nn.ReLU(True),
-                                               nn.Linear(256, 256),
-                                               nn.ReLU(True),
-                                               nn.Linear(256, 256),
-                                               nn.ReLU(True),
-                                               nn.Linear(256, context_dim*2))
+        elif experiment == 'mnist':
+          # in mnist experiment h_dim = 2
+          self.before_pooling = nn.Sequential(nn.Linear(h_dim, 256),
+                                              nn.ReLU(True),
+                                              nn.Linear(256, 256),
+                                              nn.ReLU(True),
+                                              nn.Linear(256, 256),
+                                              nn.ReLU(True))
+          self.after_pooling = nn.Sequential(nn.Linear(256, 256),
+                                             nn.ReLU(True),
+                                             nn.Linear(256, 256),
+                                             nn.ReLU(True),
+                                             nn.Linear(256, 256),
+                                             nn.ReLU(True),
+                                             nn.Linear(256, context_dim*2))
 
 
         elif experiment == 'omniglot':
