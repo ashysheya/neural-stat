@@ -1,6 +1,7 @@
 import torch.nn as nn
 import torch
 import numpy as np
+from utils import calculate_kl
 
 
 def get_loss(opts):
@@ -20,7 +21,8 @@ class KLDivergence(nn.Module):
         super(KLDivergence, self).__init__()
 
     def forward(self, input_dict):
-        kl_value_context = self.calculate_kl(input_dict['logvars_context_prior'],
+        kl_value_context = calculate_kl(input_dict['logvars_context_prior'],
+        # kl_value_context = self.calculate_kl(input_dict['logvars_context_prior'],
                                              input_dict['logvars_context'],
                                              input_dict['means_context'],
                                              input_dict['means_context_prior'])
@@ -30,18 +32,20 @@ class KLDivergence(nn.Module):
                                                       input_dict['logvars_latent_z'],
                                                       input_dict['means_latent_z'],
                                                       input_dict['means_latent_z_prior']):
-            kl_value_z += self.calculate_kl(logvar_prior, logvar, mu, mu_prior)
+            #kl_value_z += self.calculate_kl(logvar_prior, logvar, mu, mu_prior)
+            kl_value_z += calculate_kl(logvar_prior, logvar, mu, mu_prior)
 
         batch_size, sample_size = input_dict['train_data'].size()[:2]
 
         return (kl_value_z.sum() + kl_value_context.sum())/(batch_size*sample_size)
 
-    @staticmethod
-    def calculate_kl(logvar_prior, logvar, mu, mu_prior):
-        kl_val = 0.5 * logvar_prior - 0.5 * logvar
-        kl_val += (torch.exp(logvar) + (mu - mu_prior) ** 2) / 2 / torch.exp(logvar_prior)
-        kl_val -= 0.5
-        return kl_val.sum(dim=-1)
+    # added in utils function, can be deleted
+    # @staticmethod
+    # def calculate_kl(logvar_prior, logvar, mu, mu_prior):
+    #     kl_val = 0.5 * logvar_prior - 0.5 * logvar
+    #     kl_val += (torch.exp(logvar) + (mu - mu_prior) ** 2) / 2 / torch.exp(logvar_prior)
+    #     kl_val -= 0.5
+    #     return kl_val.sum(dim=-1)
 
 
 class NegativeGaussianLogLikelihood(nn.Module):

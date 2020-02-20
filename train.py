@@ -5,9 +5,13 @@ import tqdm
 import torch.optim as optim
 import numpy as np
 from torch.utils.data import DataLoader
-from models import get_model
+from models import get_model, get_stats
 from losses import get_loss
 from logs import get_logger
+from utils import summarize_batch
+
+# configuration for 'mnist' experienment
+# --experiment mnist --num_epochs 100 --context_dim 64 --num_stochastic_layers 3 --z_dim 2 --x_dim 2 --h_dim 2
 
 parser = argparse.ArgumentParser(description='Arguments for training procedure')
 
@@ -74,6 +78,7 @@ train_dataloader = DataLoader(train_dataset, batch_size=opts.batch_size,
 test_dataset = dataset_module.get_dataset(opts, split='val')
 test_dataloader = DataLoader(test_dataset, batch_size=opts.batch_size, 
     shuffle=True, num_workers=10)
+test_batch = next(iter(test_dataloader))
 
 model = get_model(opts).cuda()
 
@@ -82,6 +87,9 @@ logger = get_logger(opts)
 optimizer = optim.Adam(model.parameters(), lr=opts.lr, betas=(opts.beta1, 0.999))
 
 alpha = 1.0
+
+if opts.experiment == 'mnist':
+    stats = get_stats(opts).cuda()
 
 for epoch in tqdm.tqdm(range(opts.num_epochs)):
     model.train()
@@ -139,6 +147,34 @@ for epoch in tqdm.tqdm(range(opts.num_epochs)):
 
         if opts.experiment == 'omniglot':
         	logger.log_image(output_dict, 'test')
+
+
+        if opts.experiment == 'mnist':
+            count = 0
+
+            for data_dict in test_dataloader:
+                data = data_dict['datasets'].cuda()
+                output_dict = model.forward(data, train = False)
+                losses = {'NLL': loss_dict['NLL'].forward(output_dict)}
+
+                logger.log_data(output_dict, losses, split='test')
+
+                # plot examples in the first batch
+                if count == 0:
+                    input_plot = data
+                    sample_plot = output_dict['means_x']  
+
+                    print("Summarizing...")
+                    summaries = summarize_batch(input_plot, output_size=6)
+                    print("Summary complete!")     
+
+                count += 1
+
+            if epoch%opts.save_freq == 0:
+                logger.grid(input_plot, sample_plot, summaries=summaries, ncols=10, mode = 'summary')
+                #logger.grid(input_plot, sample_plot, ncols = 10, mode = 'test')
+                logger.save_model(model, str(epoch))
+
     
     if opts.experiment == 'synthetic':    
         contexts_test = np.concatenate(contexts_test, axis=0)

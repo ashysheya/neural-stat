@@ -1,3 +1,4 @@
+
 import torch.nn as nn
 import torch
 import math
@@ -139,6 +140,9 @@ class SharedEncoder(nn.Module):
         if self.experiment == 'synthetic':
             return {'train_data_encoded': input_dict['train_data']}
 
+        elif self.experiment == 'mnist':
+            return {'train_data_encoded': input_dict['train_data']}
+
         elif self.experiment == 'omniglot':
             datasets = input_dict['train_data']
             data_size = datasets.size()
@@ -170,6 +174,23 @@ class StatisticNetwork(nn.Module):
                                                nn.Linear(128, 128),
                                                nn.ReLU(True),
                                                nn.Linear(128, context_dim*2))
+
+         elif experiment == 'mnist':
+            # in mnist experiment h_dim = 2
+            self.before_pooling = nn.Sequential(nn.Linear(h_dim, 256),
+                                                nn.ReLU(True),
+                                                nn.Linear(256, 256),
+                                                nn.ReLU(True),
+                                                nn.Linear(256, 256),
+                                                nn.ReLU(True))
+            self.after_pooling = nn.Sequential(nn.Linear(256, 256),
+                                               nn.ReLU(True),
+                                               nn.Linear(256, 256),
+                                               nn.ReLU(True),
+                                               nn.Linear(256, 256),
+                                               nn.ReLU(True),
+                                               nn.Linear(256, context_dim*2))
+
 
         elif experiment == 'omniglot':
             self.before_pooling = nn.Sequential(nn.Linear(h_dim, 256),
@@ -287,10 +308,19 @@ class InferenceNetwork(nn.Module):
                                              nn.ReLU(True),
                                              nn.Linear(128, 128),
                                              nn.ReLU(True),
-                                             nn.Linear(128, z_dim*2))]
-                # The following stochastic layers also take previous stochastic layer as input
-                # TODO: what about z_L? 
+                                             nn.Linear(128, z_dim*2))] 
                 input_dim = self.context_dim + self.z_dim + self.h_dim
+
+        elif experiment == 'mnist':
+            for i in range(self.num_stochastic_layers):
+                self.model += [nn.Sequential(nn.Linear(input_dim, 256),
+                                             nn.ReLU(True),
+                                             nn.Linear(256, 256),
+                                             nn.ReLU(True),
+                                             nn.Linear(256, 256),
+                                             nn.ReLU(True),
+                                             nn.Linear(256, z_dim*2))]
+                input_dim = self.context_dim + self.z_dim + self.x_dim
 
         elif experiment == 'omniglot':
             for i in range(self.num_stochastic_layers):
@@ -359,6 +389,17 @@ class LatentDecoderNetwork(nn.Module):
                                              nn.Linear(128, 128),
                                              nn.ReLU(True),
                                              nn.Linear(128, z_dim*2))]
+                input_dim = self.context_dim + self.z_dim
+
+        elif experiment == 'mnist':
+            for i in range(self.num_stochastic_layers):
+                self.model += [nn.Sequential(nn.Linear(input_dim, 256),
+                                             nn.ReLU(True),
+                                             nn.Linear(256, 256),
+                                             nn.ReLU(True),
+                                             nn.Linear(256, 256),
+                                             nn.ReLU(True),
+                                             nn.Linear(256, z_dim*2))]
                 input_dim = self.context_dim + self.z_dim
 
         if experiment == 'omniglot':
@@ -474,6 +515,17 @@ class ObservationDecoderNetwork(nn.Module):
                                        nn.Linear(128, 128),
                                        nn.ReLU(True),
                                        nn.Linear(128, x_dim * 2))
+
+        elif experiment == 'mnist':
+            self.model = nn.Sequential(nn.Linear(input_dim, 256),
+                                       nn.ReLU(True),
+                                       nn.Linear(256, 256),
+                                       nn.ReLU(True),
+                                       nn.Linear(256, 256),
+                                       nn.ReLU(True),
+                                       nn.Linear(256, x_dim*2))
+
+
         if experiment == 'omniglot':
 
             module_list = [nn.Linear(input_dim, 4*4*256),
@@ -517,7 +569,7 @@ class ObservationDecoderNetwork(nn.Module):
 
         outputs = self.model(inputs)
 
-        if self.experiment == 'synthetic':
+        if self.experiment == 'synthetic' or self.experiment == 'mnist':
             return {'means_x': outputs[:, :self.x_dim],
                     'logvars_x': torch.clamp(outputs[:, self.x_dim:], -10, 10)}
 

@@ -16,14 +16,14 @@ import torch.nn.functional as F
 def get_dataset(opts, split = 'train'):
     """Function to get instance of SyntheticDataset given training options."""
     if split == 'train':
-        return MnistDataset(opts.data_dir, mode = 'train')
+        return MnistDataset(mode = 'train')
     else:
-        return MnistDataset(opts.data_dir, mode = 'test')
+        return MnistDataset(mode = 'test')
 
 
 class MnistDataset(Dataset):
     """Data set for mnist experiment."""
-    def __init__(self, data_dir, mode = 'train'):
+    def __init__(self, mode = 'train'):
         data_train = MNIST('mnist', download=True, train=True)
         x_train, y_train = data_train.train_data.float(), data_train.train_labels
         data_test = MNIST('mnist', download=True, train=False)
