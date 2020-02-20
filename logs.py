@@ -56,10 +56,6 @@ class Logger:
         self.iterations[split] += 1
 
     def log_embedding(self, contexts, labels, means, variances):
-        #         contexts (500*4, 3)
-        #         labels (500*4, )
-        #         means (500*4, )
-        #         variances (500*4, )
 
         # Plot by distribution
         fig = plt.figure()

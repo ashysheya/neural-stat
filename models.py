@@ -1,11 +1,14 @@
-import torch
 import torch.nn as nn
-import numpy as np
+import torch
+import math
 from utils import sample_from_normal
 import torch.nn.functional as F
 
 def get_model(opts):
     return NeuralStatistician(opts)
+
+def get_stats(opts):
+    return StatisticNetwork(opts.experiment, opts.context_dim, opts.masked)
 
 
 class NeuralStatistician(nn.Module):
@@ -111,7 +114,7 @@ class NeuralStatistician(nn.Module):
 
 
 class SharedEncoder(nn.Module):
-    """Shared Encoder x-->h"""
+    """Shared encoder for encoding x -> h."""
     def __init__(self, experiment):
         super(SharedEncoder, self).__init__()
         self.experiment = experiment
@@ -169,17 +172,34 @@ class SharedEncoder(nn.Module):
                                        nn.ELU(inplace=True))
                                        # Shape is now (-1, 256, 4, 4)
 
+        elif self.experiment == 'omniglot':
+            in_channels = 1
+            module_list = []
+            for i in [64, 128, 256]:
+                module_list += [
+                    nn.Conv2d(in_channels, i, kernel_size=3, padding=1, stride=1),
+                    nn.BatchNorm2d(num_features=i),
+                    nn.ELU(inplace=True),
+                    nn.Conv2d(i, i, kernel_size=3, padding=1, stride=1),
+                    nn.BatchNorm2d(num_features=i),
+                    nn.ELU(inplace=True),
+                    nn.Conv2d(i, i, kernel_size=3, padding=1, stride=2),
+                    nn.BatchNorm2d(num_features=i),
+                    nn.ELU(inplace=True)]
+                in_channels = i
+
+            self.model = nn.Sequential(*module_list)
+
     def forward(self, input_dict):
-        if self.experiment == 'synthetic':
+        if self.experiment == 'synthetic' or self.experiment == 'mnist':
             return {'train_data_encoded': input_dict['train_data']}
 
         elif self.experiment == 'omniglot' or self.experiment == 'youtube':
             datasets = input_dict['train_data']
-            data_size = datasets.size()  # Should be (batch_size, 5, 3, 64, 64) for youtube
-            # Pass x as (-1, 3, 64, 64), i.e. (batch_size*5, 3, 64, 64)
+            data_size = datasets.size()
             encoded = self.model(datasets.view(data_size[0]*data_size[1], *data_size[2:]))
             encoded = encoded.view(data_size[0], data_size[1], -1).contiguous()
-
+            
             return {'train_data_encoded': encoded}
 
 
@@ -208,62 +228,87 @@ class StatisticNetwork(nn.Module):
                                                nn.Linear(128, context_dim*2))
 
         elif experiment == 'youtube':
-            # Output of the shared encoder has 256 feature maps, each 4x4: h_dim = 256*4*4=4096
             self.before_pooling = nn.Sequential(nn.Linear(h_dim, 1000),
                                                 nn.ELU(inplace=True))
-            # Check here: unsure about hidden layer dim and number of FC layers. Also, in paper specifies LINEAR
-            # layers, but on repo used a non-linearity. So used ReLU, and same number of layers as in repo.
             self.after_pooling = nn.Sequential(nn.Linear(1000, 1000),
                                                nn.ELU(inplace=True),
                                                nn.Linear(1000, 1000),
                                                nn.ELU(inplace=True),
                                                nn.Linear(1000, context_dim*2))
 
+         elif experiment == 'mnist':
+            # in mnist experiment h_dim = 2
+            self.before_pooling = nn.Sequential(nn.Linear(h_dim, 256),
+                                                nn.ReLU(True),
+                                                nn.Linear(256, 256),
+                                                nn.ReLU(True),
+                                                nn.Linear(256, 256),
+                                                nn.ReLU(True))
+            self.after_pooling = nn.Sequential(nn.Linear(256, 256),
+                                               nn.ReLU(True),
+                                               nn.Linear(256, 256),
+                                               nn.ReLU(True),
+                                               nn.Linear(256, 256),
+                                               nn.ReLU(True),
+                                               nn.Linear(256, context_dim*2))
+
+
+        elif experiment == 'omniglot':
+            self.before_pooling = nn.Sequential(nn.Linear(h_dim, 256),
+                                                nn.ELU(inplace=True))
+            self.after_pooling = nn.Sequential(nn.Linear(256 + int(masked), 256),
+                                               nn.ELU(inplace=True),
+                                               nn.Linear(256, 256),
+                                               nn.ELU(inplace=True),
+                                               nn.Linear(256, context_dim * 2))
+
     def forward(self, input_dict):
         """
         :param input_dict: dictionary that hold training data / encoded data -
         torch.FloatTensor of size (batch_size, samples_per_dataset, sample_dim)
-        ## For synthetic data this is (16, 200, 1) by default
-        ## For youtube data this is (16, 5, 256, 4, 4) after encoder
         :return dictionary of mu, logsigma and context sample for each dataset
         """
         # If encoded data exists, take this - else take non-transformed input data
         datasets = input_dict['train_data_encoded']
         data_size = datasets.size()
-        # Pass all input vectors together: input to NN has size (batch_size*n_samples_per_dataset, vector_size)
-        # For synthetic data the vector_size is 1, that's why the NN input is size 1 so the input has size (16*200, 1).
-        # For the faces dataset, the encoded input size is (batch_size, n_samples_per_dataset, 256*4*4)
-        prestat_vector = self.before_pooling(datasets.view(data_size[0]*data_size[1],
-                *data_size[2:]))
-        # The output prestat_vector is of size (16*200, 128) for synthetic data.
-        # Calculate encoding v: this takes the size (16, 200, 128), and calculates the mean along dimension 1: i.e.
-        # along the 200 samples of a given dataset. So first we need to change the prestat_vector view from
-        # (16*200, 128) to (16, 200, 128). After averaging, the encoding v is (16, 1, 128).
-        # Similarly for the youtube dataset, need to change view from (16*5, 1000) to (16, 5, 1000) and average over the
-        # samples in the dataset (dim=1):
-        prestat_vector = prestat_vector.view(data_size[0], data_size[1], -1).mean(dim=1)
-        # Output is of (16, size context_dim*2): it has the mean and logvar of the context for each batch
+        prestat_vector = self.before_pooling(datasets.view(data_size[0]*data_size[1], 
+            *data_size[2:]))
+
+        if not self.masked:
+            prestat_vector = prestat_vector.view(data_size[0], data_size[1], -1).mean(dim=1)
+        else:
+            mask_first = torch.ones((data_size[0], 1, 1)).cuda()
+            if data_size[1] - 1 > 0:
+                p = 0.8 if input_dict['train'] else 1.0
+                mask = torch.bernoulli(p*torch.ones((data_size[0], data_size[1] - 1, 1))).cuda()
+                mask = torch.cat([mask_first, mask], 1)
+            else:
+                mask = mask_first
+
+            prestat_vector = prestat_vector.view(data_size[0], data_size[1], -1)
+            prestat_vector = prestat_vector*mask.expand_as(prestat_vector)
+
+            extra_feature = torch.sum(mask, 1)
+            prestat_vector = torch.sum(prestat_vector, 1)
+            prestat_vector /= extra_feature.expand_as(prestat_vector)
+
+            prestat_vector = torch.cat([prestat_vector, extra_feature], 1)
+
         outputs = self.after_pooling(prestat_vector)
         means = outputs[:, :self.context_dim]
-        # Limit the logvar to reasonable values
         logvars = torch.clamp(outputs[:, self.context_dim:], -10, 10)
-        # Sample the context from the mean and logvar we have just found. It has size (batch_size, c_dim)
         samples = sample_from_normal(means, logvars)
-        # Expand the samples: take the samples for each batch, and copy it for each sample in the dataset. To do so,
-        # one dimension (dim 1) is added to the samples, making it (16, 1, 3), and the values are copied along dim 1
-        # to make it (16, 200, 3) for synthetic data --> this way, the context vector is returned for each input data!
-        # For faces dataset, it will become (batch_size, 5, context_dim)
-        # CHECK HERE -- how does contiguous work??
         samples_expanded = samples[:, None].expand(-1, data_size[1], -1).contiguous()
-        # Finally, make samples_expanded of size (16*200, 3) for synthetic data. For faces data, it is (16*5, 3)
         samples_expanded = samples_expanded.view(-1, self.context_dim)
+
         return {'means_context': means,
                 'logvars_context': logvars,
                 'samples_context': samples, 
                 'samples_context_expanded': samples_expanded}
-        # Dict with dimensions means(16, 3), logvars(16, 3), samples(16, 3): 1 for each D and
-        # samples_expanded(16*200, 3): 1 for each x (the same copied along each x in each D)
-        # For faces data, this is the same, except that sample_size=5 instead of 200 and context_dim=500 by default
+
+    def sample(self, input_dict):
+        output_dict = self.forward(input_dict)
+        return {'samples_context': output_dict['means_context']}
 
     def sample(self, input_dict):
         output_dict = self.forward(input_dict)
@@ -289,16 +334,19 @@ class ContextPriorNetwork(nn.Module):
         :return: dict of means and log variance for prior
         """
         if self.type_prior == 'standard':
-            # The samples_context in the input dict has size (16, 3)--> 1 context vector for each dataset in the batch
             contexts = input_dict['samples_context']
-            # Prior is spherical: make prior mean zeros(16, 3) and logvar zeros(16, 3)-->var ones(16,3)
             means, logvars = torch.zeros_like(contexts), torch.zeros_like(contexts)
             if contexts.is_cuda:
                 means = means.cuda()
                 logvars = logvars.cuda()
             return {'means_context_prior': means,
                     'logvars_context_prior': logvars}
-            # Dict with means_context_prior(16, 3) and logvars_context_prior(16, 3) for synthetic data
+
+    def sample(self, num_datasets):
+        if self.type_prior == 'standard':
+            means = torch.zeros((num_datasets, self.context_dim)).cuda()
+            logvars = torch.zeros_like(means).cuda()
+            return {'samples_context': sample_from_normal(means, logvars)}
 
     def sample(self, num_datasets):
         if self.type_prior == 'standard':
@@ -334,7 +382,6 @@ class InferenceNetwork(nn.Module):
                                              nn.Linear(128, 128),
                                              nn.ReLU(True),
                                              nn.Linear(128, z_dim*2))]
-                # The following stochastic layers also take previous stochastic layer as input
                 input_dim = self.context_dim + self.z_dim + self.h_dim
 
         elif experiment == 'youtube':
@@ -342,11 +389,32 @@ class InferenceNetwork(nn.Module):
                 # In repo, instead of concatenating directly the inputs, they created different embeddings for c, h and
                 # z_i with one hidden layer for each. Then they concatenate, and apply a nonlinearity. But in paper,
                 # state that h and c should be concatenated and THEN use a fully-connected layer, so will use this.
-                # Same as paper: FC layer with 1000 units and ReLU, and FC layers to mean and logvar
+                # Do same as paper: FC layer with 1000 units and ReLU, and FC layers to mean and logvar
                 self.model += [nn.Sequential(nn.Linear(input_dim, 1000),
                                              nn.ELU(inplace=True),
                                              nn.Linear(1000, z_dim*2))]
-                # The following stochastic layers also take previous stochastic layer as input
+                input_dim = self.context_dim + self.z_dim + self.h_dim
+
+        elif experiment == 'mnist':
+            for i in range(self.num_stochastic_layers):
+                self.model += [nn.Sequential(nn.Linear(input_dim, 256),
+                                             nn.ReLU(True),
+                                             nn.Linear(256, 256),
+                                             nn.ReLU(True),
+                                             nn.Linear(256, 256),
+                                             nn.ReLU(True),
+                                             nn.Linear(256, z_dim*2))]
+                input_dim = self.context_dim + self.z_dim + self.x_dim
+
+        elif experiment == 'omniglot':
+            for i in range(self.num_stochastic_layers):
+                self.model += [nn.Sequential(nn.Linear(input_dim, 256),
+                                             nn.ELU(inplace=True),
+                                             nn.Linear(256, 256),
+                                             nn.ELU(inplace=True),
+                                             nn.Linear(256, 256),
+                                             nn.ELU(inplace=True),
+                                             nn.Linear(256, z_dim*2))]
                 input_dim = self.context_dim + self.z_dim + self.h_dim
 
     def forward(self, input_dict):
@@ -356,17 +424,9 @@ class InferenceNetwork(nn.Module):
         - train data: (batch_size, num_datapoints_per_dataset, sample_size) batch of datasets
         :return: dictionary of lists for means, log variances and samples for each stochastic layer
         """
-        # samples_context_expanded have size (16*200, 3), i.e. (batch_size*num_datapoints_per_dataset, context_size)
         context_expanded = input_dict['samples_context_expanded']
-        # For synthetic data, datasets has size (16, 200, 1), i.e. (batch_size, num_datapoints_per_dataset, sample_size)
-        # For faces data, it is (16, 5, 256, 4, 4)
         datasets = input_dict['train_data_encoded']
-        # Make datasets of size (16*200, 1) for synthetic, (16*5, 256*4*4) for faces
         datasets_raveled = datasets.view(-1, self.h_dim)
-        # Input has dimension (batch_size*num_datapoints_per_dataset, sample_size+context_dim)
-        # Operation below concatenates the (16*200, 3) context samples with the (16*200, 1) samples to make the input
-        # have size (16*200, 4)
-        # For faces data, this should be (16*5, 256*4*4 + 500)
         current_input = torch.cat([context_expanded, datasets_raveled], dim=1)
 
         outputs = {'means_latent_z': [],
@@ -375,23 +435,17 @@ class InferenceNetwork(nn.Module):
 
         # Iterate over each module in the model: the n_stochastic_layers different networks
         for module in self.model:
-            # current_output has dim (batch_size*num_datapoints_per_dataset, z_dim*2)
             current_output = module.forward(current_input)
             means = current_output[:, :self.z_dim]
             logvars = torch.clamp(current_output[:, self.z_dim:], -10, 10)
-            # samples has dim (16*200, z_dim)
             samples = sample_from_normal(means, logvars)
-            # p(z_i|z_{i+1},c) follows normal distribution
-            # For the next input, concatenate the previous input with the sample, to get an input of size
-            # (batch_size*num_datapoints_per_dataset, context_dim + x_dim + z_dim)
+
             current_input = torch.cat([context_expanded, datasets_raveled, samples], dim=1)
-            # For each dictionary entry, add to the list the values for the current stochastic layer. Each entry added
-            # has dimension (16*200, z_dim)
+
             outputs['means_latent_z'] += [means]
             outputs['logvars_latent_z'] += [logvars]
             outputs['samples_latent_z'] += [samples]
-        # At the end, each entry in the dictionary is a list of length n_stochastic_layers, with each element in the
-        # list having dimension (batch_size*num_datapoints_per_dataset, z_dim)
+
         return outputs
 
 
@@ -431,6 +485,28 @@ class LatentDecoderNetwork(nn.Module):
                                              nn.Linear(1000, z_dim*2))]
                 input_dim = self.context_dim + self.z_dim
 
+        elif experiment == 'mnist':
+            for i in range(self.num_stochastic_layers):
+                self.model += [nn.Sequential(nn.Linear(input_dim, 256),
+                                             nn.ReLU(True),
+                                             nn.Linear(256, 256),
+                                             nn.ReLU(True),
+                                             nn.Linear(256, 256),
+                                             nn.ReLU(True),
+                                             nn.Linear(256, z_dim*2))]
+                input_dim = self.context_dim + self.z_dim
+
+        if experiment == 'omniglot':
+            for i in range(self.num_stochastic_layers):
+                self.model += [nn.Sequential(nn.Linear(input_dim, 256),
+                                             nn.ELU(inplace=True),
+                                             nn.Linear(256, 256),
+                                             nn.ELU(inplace=True),
+                                             nn.Linear(256, 256),
+                                             nn.ELU(inplace=True),
+                                             nn.Linear(256, z_dim * 2))]
+                input_dim = self.context_dim + self.z_dim
+
     def forward(self, input_dict):
         """
         Given context and samples of z_1, ..., z_{L-1} should return a dictionary with
@@ -440,14 +516,13 @@ class LatentDecoderNetwork(nn.Module):
         - train data: (batch_size, num_datapoints_per_dataset, sample_size) batch of datasets
         :return: dictionary of lists for means, log variances and samples for each stochastic layer
         """
-        context_expanded = input_dict['samples_context_expanded']  # Array of size (16*200, c_dim)
-        samples_latent_z = input_dict['samples_latent_z']  # List of length n_stochastic layer, w/ elem. (16*200, z_dim)
+        context_expanded = input_dict['samples_context_expanded']
+        samples_latent_z = input_dict['samples_latent_z']
 
         current_input = context_expanded  # Input for first stochastic layer p(z|c) is just c
         outputs = {'means_latent_z_prior': [],
                    'logvars_latent_z_prior': []}
 
-        # Comments are same as for the inference network above
         for i, module in enumerate(self.model):
             current_output = module.forward(current_input)
             means = current_output[:, :self.z_dim]
@@ -455,8 +530,7 @@ class LatentDecoderNetwork(nn.Module):
             outputs['means_latent_z_prior'] += [means]
             outputs['logvars_latent_z_prior'] += [logvars]
             current_input = torch.cat([context_expanded, samples_latent_z[i]], dim=1)
-        # At the end, each entry in the dictionary is a list of length n_stochastic_layers, with each element in the
-        # list having dimension (16*200, z_dim)
+
         return outputs
 
     def sample(self, input_dict, num_samples_per_dataset):
@@ -474,7 +548,9 @@ class LatentDecoderNetwork(nn.Module):
             means = current_output[:, :self.z_dim]
             logvars = torch.clamp(current_output[:, self.z_dim:], -10, 10)
             samples = sample_from_normal(means, logvars)
+
             current_input = torch.cat([context_expanded, samples], dim=1)
+
             outputs['samples_latent_z'] += [samples]
 
         return outputs
@@ -493,6 +569,16 @@ class ClampLayer(nn.Module):
 
     def forward(self, input):
         return torch.clamp(input, **self.kwargs)
+
+
+class ReshapeLayer(nn.Module):
+    def __init__(self, num_channels=256):
+        super(ReshapeLayer, self).__init__()
+        self.num_channels = num_channels
+
+    def forward(self, input):
+        spacial_dim = int(math.sqrt(input.size()[-1]/self.num_channels))
+        return input.view(-1, self.num_channels, spacial_dim, spacial_dim)
 
 
 class ObservationDecoderNetwork(nn.Module):
@@ -581,33 +667,68 @@ class ObservationDecoderNetwork(nn.Module):
                                       nn.ELU(inplace=True),
                                       nn.Conv2d(32, 3, kernel_size=1),
                                       # Dim is now (-1, 3, 64, 64)
-                                      #nn.Sigmoid(True)
                                       ClampLayer(-10, 10)
                                       )
+
+        elif experiment == 'mnist':
+            self.model = nn.Sequential(nn.Linear(input_dim, 256),
+                                       nn.ReLU(True),
+                                       nn.Linear(256, 256),
+                                       nn.ReLU(True),
+                                       nn.Linear(256, 256),
+                                       nn.ReLU(True),
+                                       nn.Linear(256, x_dim*2))
+
+
+        if experiment == 'omniglot':
+
+            module_list = [nn.Linear(input_dim, 4*4*256),
+                           nn.ELU(inplace=True),
+                           ReshapeLayer(256)]
+
+            in_channels = 256
+
+            for i in [256, 128, 64]:
+                module_list += [
+                    nn.Conv2d(in_channels, i, kernel_size=3, padding=1, stride=1),
+                    nn.BatchNorm2d(num_features=i),
+                    nn.ELU(inplace=True),
+                    nn.Conv2d(i, i, kernel_size=3, padding=0 if i == 64 else 1, stride=1),
+                    nn.BatchNorm2d(num_features=i),
+                    nn.ELU(inplace=True),
+                    nn.ConvTranspose2d(i, i, kernel_size=2, stride=2),
+                    nn.BatchNorm2d(num_features=i),
+                    nn.ELU(inplace=True)]
+                in_channels = i
+
+            module_list += [nn.Conv2d(in_channels, 1, kernel_size=1),
+                            ClampLayer(-10, 10),
+                            nn.Sigmoid()]
+
+            self.model = nn.Sequential(*module_list)
 
     def forward(self, input_dict):
         """
         Given sampled context and sampled latent z_i, should return parameters
         of the distribution for x.
         """
-        context_expanded = input_dict['samples_context_expanded']  # samples_expanded has size (16*200, 3)
-        # Below: z samples from InferenceNetwork: list of length n_stochastic_layers, with each element in the
-        # list having dimension (16*200, z_dim): so essentially it is [(16*200,z_dim), (16*200,z_dim), (16*200,z_dim)]
+        context_expanded = input_dict['samples_context_expanded']
         latent_z = input_dict['samples_latent_z']
-        # Make a list from the expanded context, and concatenate with the latent z, making the input of size
-        # (16*200, context_dim + num_stochastic_layers*z_dim).
         inputs = torch.cat([context_expanded] + latent_z, dim=1)
 
-        if self.experiment == 'synthetic':
-            # Output has size (16*200, x_dim*2) for synthetic case
-            outputs = self.model(inputs)
-            return {'means_x': outputs[:, :self.x_dim],
-                    'logvars_x': torch.clamp(outputs[:, self.x_dim:], -10, 10)}
-
-        elif self.experiment == 'youtube':
+        if self.experiment == 'youtube':
             pre_conv_output = self.pre_conv(inputs)
             pre_conv_output = pre_conv_output.view(-1, 256, 4, 4)
-            x_mean = F.sigmoid(self.conv(pre_conv_output))  # Should be (batch_size*num_data_per_dataset, 3, 64, 64)
+            x_mean = F.sigmoid(self.conv(pre_conv_output))
             x_logvar = self.logvar.expand_as(x_mean)
             return {'means_x': x_mean,
                     'logvars_x': x_logvar}
+
+        outputs = self.model(inputs)
+
+        if self.experiment == 'synthetic' or self.experiment == 'mnist':
+            return {'means_x': outputs[:, :self.x_dim],
+                    'logvars_x': torch.clamp(outputs[:, self.x_dim:], -10, 10)}
+
+        else:
+            return {'proba_x': outputs}

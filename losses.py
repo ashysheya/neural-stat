@@ -1,6 +1,7 @@
 import torch.nn as nn
 import torch
 import numpy as np
+from utils import calculate_kl
 
 
 def get_loss(opts):
@@ -21,7 +22,7 @@ class KLDivergence(nn.Module):
 
     def forward(self, input_dict):
         # C_D term (equation (9) in paper): KL divergence between context prior and statistic network output
-        kl_value_context = self.calculate_kl(input_dict['logvars_context_prior'],
+        kl_value_context = calculate_kl(input_dict['logvars_context_prior'],
                                              input_dict['logvars_context'],
                                              input_dict['means_context'],
                                              input_dict['means_context_prior'])
@@ -33,29 +34,21 @@ class KLDivergence(nn.Module):
                                                       input_dict['logvars_latent_z'],
                                                       input_dict['means_latent_z'],
                                                       input_dict['means_latent_z_prior']):
-            kl_value_z += self.calculate_kl(logvar_prior, logvar, mu, mu_prior)
+            kl_value_z += calculate_kl(logvar_prior, logvar, mu, mu_prior)
 
         batch_size, sample_size = input_dict['train_data'].size()[:2]
 
         # Expected value comes in: average KL loss across all samples (16*200 for the default synthetic dataset case)
         return (kl_value_z.sum() + kl_value_context.sum())/(batch_size*sample_size)
 
-    @staticmethod
-    def calculate_kl(logvar_prior, logvar, mu, mu_prior):
-        # See calculation for diagonal multivariate Gaussian in
-        # https://en.wikipedia.org/wiki/Kullback%E2%80%93Leibler_divergence#Multivariate_normal_distributions
-        # 1/2*(sum_i(ln(var2_i) - ln(var1_i) + 1/var2_i*(mu2_i - mu1_i)**2 + var1_i/var2_i - 1))
-        # Here, this is done in different steps:
-        # 1. For each i:
-        #    a. Compute  1/2*(ln(var_i)- ln(var1_i))
-        kl_val = 0.5 * logvar_prior - 0.5 * logvar
-        #    b. Compute 1/2*(1/var2_i*(mu2_i - mu1_i)**2 + var1_i/var2_i)
-        kl_val += (torch.exp(logvar) + (mu - mu_prior) ** 2) / 2 / (
-            torch.exp(logvar_prior))
-        #    c. Subtract 1/2
-        kl_val -= 0.5
-        # 2. Sum over all i
-        return kl_val.sum(dim=-1)
+
+    # added in utils function, can be deleted
+    # @staticmethod
+    # def calculate_kl(logvar_prior, logvar, mu, mu_prior):
+    #     kl_val = 0.5 * logvar_prior - 0.5 * logvar
+    #     kl_val += (torch.exp(logvar) + (mu - mu_prior) ** 2) / 2 / torch.exp(logvar_prior)
+    #     kl_val -= 0.5
+    #     return kl_val.sum(dim=-1)
 
 
 class NegativeGaussianLogLikelihood(nn.Module):
@@ -64,10 +57,8 @@ class NegativeGaussianLogLikelihood(nn.Module):
         super(NegativeGaussianLogLikelihood, self).__init__()
 
     def forward(self, input_dict):
-        batch_size, sample_size = input_dict['train_data'].size()[:2]  # 16, 200 for the default synthetic dataset case
-        observations = input_dict['train_data']  # for youtube, shape is (16, 5, 3, 64, 64)
-        # logvars and means are (16*200, 1) for the default synthetic dataset case: make them (16, 200, 1)
-        # For youtube data, these originally have size (16*5, 3, 64, 64) - make them size (16, 5, 3, 64, 64)
+        batch_size, sample_size = input_dict['train_data'].size()[:2]
+        observations = input_dict['train_data']
         logvars = input_dict['logvars_x'].view_as(observations)
         means = input_dict['means_x'].view_as(observations)
         # Compute LL loss term R_D from equation (8) in paper.
