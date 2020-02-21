@@ -1,3 +1,4 @@
+
 import torch.nn as nn
 import torch
 import math
@@ -7,6 +8,7 @@ import torch.nn.functional as F
 def get_model(opts):
     return NeuralStatistician(opts)
 
+# for summarising points in the mnist experiment
 def get_stats(opts):
     return StatisticNetwork(opts.experiment, opts.context_dim, opts.masked)
 
@@ -191,15 +193,17 @@ class SharedEncoder(nn.Module):
             self.model = nn.Sequential(*module_list)
 
     def forward(self, input_dict):
-        if self.experiment == 'synthetic' or self.experiment == 'mnist':
+        if self.experiment == 'synthetic':
             return {'train_data_encoded': input_dict['train_data']}
 
-        elif self.experiment == 'omniglot' or self.experiment == 'youtube':
+        elif self.experiment == 'mnist':
+            return {'train_data_encoded': input_dict['train_data']}
+
+        elif self.experiment == 'omniglot':
             datasets = input_dict['train_data']
             data_size = datasets.size()
-            encoded = self.model(datasets.view(data_size[0]*data_size[1], *data_size[2:]))
+            encoded = self.model(datasets.view(data_size[0] * data_size[1], *data_size[2:]))
             encoded = encoded.view(data_size[0], data_size[1], -1).contiguous()
-            
             return {'train_data_encoded': encoded}
 
 
@@ -238,7 +242,8 @@ class StatisticNetwork(nn.Module):
 
         elif experiment == 'mnist':
           # in mnist experiment h_dim = 2
-          self.before_pooling = nn.Sequential(nn.Linear(h_dim, 256),
+          # CHECK HERE: it doesn't work when use h_dim instead of 2
+          self.before_pooling = nn.Sequential(nn.Linear(2, 256),
                                               nn.ReLU(True),
                                               nn.Linear(256, 256),
                                               nn.ReLU(True),
@@ -268,31 +273,37 @@ class StatisticNetwork(nn.Module):
         torch.FloatTensor of size (batch_size, samples_per_dataset, sample_dim)
         :return dictionary of mu, logsigma and context sample for each dataset
         """
+
         # If encoded data exists, take this - else take non-transformed input data
         datasets = input_dict['train_data_encoded']
         data_size = datasets.size()
+        #print(data_size)
         prestat_vector = self.before_pooling(datasets.view(data_size[0]*data_size[1], 
             *data_size[2:]))
 
-        if not self.masked:
+        # CHECK HERE： not sure what mask is doing
+        if self.experiment == 'mnist':
             prestat_vector = prestat_vector.view(data_size[0], data_size[1], -1).mean(dim=1)
         else:
-            mask_first = torch.ones((data_size[0], 1, 1)).cuda()
-            if data_size[1] - 1 > 0:
-                p = 0.8 if input_dict['train'] else 1.0
-                mask = torch.bernoulli(p*torch.ones((data_size[0], data_size[1] - 1, 1))).cuda()
-                mask = torch.cat([mask_first, mask], 1)
+            if not self.masked:
+                prestat_vector = prestat_vector.view(data_size[0], data_size[1], -1).mean(dim=1)
             else:
-                mask = mask_first
+                mask_first = torch.ones((data_size[0], 1, 1)).cuda()
+                if data_size[1] - 1 > 0:
+                    p = 0.8 if input_dict['train'] else 1.0
+                    mask = torch.bernoulli(p*torch.ones((data_size[0], data_size[1] - 1, 1))).cuda()
+                    mask = torch.cat([mask_first, mask], 1)
+                else:
+                    mask = mask_first
 
-            prestat_vector = prestat_vector.view(data_size[0], data_size[1], -1)
-            prestat_vector = prestat_vector*mask.expand_as(prestat_vector)
+                prestat_vector = prestat_vector.view(data_size[0], data_size[1], -1)
+                prestat_vector = prestat_vector*mask.expand_as(prestat_vector)
 
-            extra_feature = torch.sum(mask, 1)
-            prestat_vector = torch.sum(prestat_vector, 1)
-            prestat_vector /= extra_feature.expand_as(prestat_vector)
+                extra_feature = torch.sum(mask, 1)
+                prestat_vector = torch.sum(prestat_vector, 1)
+                prestat_vector /= extra_feature.expand_as(prestat_vector)
 
-            prestat_vector = torch.cat([prestat_vector, extra_feature], 1)
+                prestat_vector = torch.cat([prestat_vector, extra_feature], 1)
 
         outputs = self.after_pooling(prestat_vector)
         means = outputs[:, :self.context_dim]
@@ -305,10 +316,6 @@ class StatisticNetwork(nn.Module):
                 'logvars_context': logvars,
                 'samples_context': samples, 
                 'samples_context_expanded': samples_expanded}
-
-    def sample(self, input_dict):
-        output_dict = self.forward(input_dict)
-        return {'samples_context': output_dict['means_context']}
 
     def sample(self, input_dict):
         output_dict = self.forward(input_dict)
@@ -347,13 +354,6 @@ class ContextPriorNetwork(nn.Module):
             means = torch.zeros((num_datasets, self.context_dim)).cuda()
             logvars = torch.zeros_like(means).cuda()
             return {'samples_context': sample_from_normal(means, logvars)}
-
-    def sample(self, num_datasets):
-        if self.type_prior == 'standard':
-            means = torch.zeros((num_datasets, self.context_dim)).cuda()
-            logvars = torch.zeros_like(means).cuda()
-            return {'samples_context': sample_from_normal(means, logvars)}
-
 
 class InferenceNetwork(nn.Module):
     """Variational approximation q(z_1, ..., z_L|c, x)."""
@@ -404,7 +404,7 @@ class InferenceNetwork(nn.Module):
                                              nn.Linear(256, 256),
                                              nn.ReLU(True),
                                              nn.Linear(256, z_dim*2))]
-                input_dim = self.context_dim + self.z_dim + self.x_dim
+                input_dim = self.context_dim + self.z_dim + self.h_dim
 
         elif experiment == 'omniglot':
             for i in range(self.num_stochastic_layers):
@@ -540,7 +540,7 @@ class LatentDecoderNetwork(nn.Module):
 
         current_input = context_expanded
 
-        outputs = {'samples_latent_z': [],
+        outputs = {'samples_latent_z': [], 
                    'samples_context_expanded': context_expanded}
 
         for i, module in enumerate(self.model):
@@ -550,7 +550,6 @@ class LatentDecoderNetwork(nn.Module):
             samples = sample_from_normal(means, logvars)
 
             current_input = torch.cat([context_expanded, samples], dim=1)
-
             outputs['samples_latent_z'] += [samples]
 
         return outputs

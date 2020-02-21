@@ -3,7 +3,6 @@ import torch
 import numpy as np
 from utils import calculate_kl
 
-
 def get_loss(opts):
 
     if opts.nll == 'gaussian':
@@ -30,6 +29,7 @@ class KLDivergence(nn.Module):
 
         # L_D term (equation (10) in paper): Sum of divergences between z prior and inference network output
         # The expected value is implicit, as the z are generated using the context generated from the statistic network
+
         for logvar_prior, logvar, mu, mu_prior in zip(input_dict['logvars_latent_z_prior'],
                                                       input_dict['logvars_latent_z'],
                                                       input_dict['means_latent_z'],
@@ -41,14 +41,13 @@ class KLDivergence(nn.Module):
         # Expected value comes in: average KL loss across all samples (16*200 for the default synthetic dataset case)
         return (kl_value_z.sum() + kl_value_context.sum())/(batch_size*sample_size)
 
+    @staticmethod
+    def calculate_kl(logvar_prior, logvar, mu, mu_prior):
+        kl_val = 0.5 * logvar_prior - 0.5 * logvar
+        kl_val += (torch.exp(logvar) + (mu - mu_prior) ** 2) / 2 / torch.exp(logvar_prior)
+        kl_val -= 0.5
+        return kl_val.sum(dim=-1)
 
-    # added in utils function, can be deleted
-    # @staticmethod
-    # def calculate_kl(logvar_prior, logvar, mu, mu_prior):
-    #     kl_val = 0.5 * logvar_prior - 0.5 * logvar
-    #     kl_val += (torch.exp(logvar) + (mu - mu_prior) ** 2) / 2 / torch.exp(logvar_prior)
-    #     kl_val -= 0.5
-    #     return kl_val.sum(dim=-1)
 
 
 class NegativeGaussianLogLikelihood(nn.Module):

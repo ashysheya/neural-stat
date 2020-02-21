@@ -5,10 +5,10 @@ import tqdm
 import torch.optim as optim
 import numpy as np
 from torch.utils.data import DataLoader
-from models import get_model, get_stats
+from models import get_model
 from losses import get_loss
 from logs import get_logger
-from utils import summarize_batch
+from utils_mnist import summarize_batch
 
 # configuration for 'mnist' experienment
 # --experiment 'mnist' --num_epochs 100 --context_dim 64 --num_stochastic_layers 3 --z_dim 2 --x_dim 2 --h_dim 2
@@ -98,15 +98,11 @@ test_batch = next(iter(test_dataloader))
 # Initialize the Neural Statistician model in models.py
 model = get_model(opts).cuda()
 
-
 loss_dict = get_loss(opts)
 logger = get_logger(opts)
 optimizer = optim.Adam(model.parameters(), lr=opts.lr, betas=(opts.beta1, 0.999))
 
 alpha = 1.0
-
-if opts.experiment == 'mnist':
-    stats = get_stats(opts).cuda()
 
 for epoch in tqdm.tqdm(range(opts.num_epochs)):
     model.train()
@@ -150,6 +146,9 @@ for epoch in tqdm.tqdm(range(opts.num_epochs)):
             means_test = []
             variances_test = []
 
+        if opts.experiment == 'mnist':
+            count = 0
+
         for data_dict in test_dataloader:
 
             data = data_dict['datasets'].cuda()
@@ -165,35 +164,24 @@ for epoch in tqdm.tqdm(range(opts.num_epochs)):
                 variances_test.append(data_dict['variances'].numpy())
                 contexts_test.append(output_dict['means_context'].cpu().numpy())
 
-        if opts.experiment == 'omniglot' or opts.experiment == 'youtube':
-        	logger.log_image(output_dict, 'test')
-
-
-        if opts.experiment == 'mnist':
-            count = 0
-
-            for data_dict in test_dataloader:
-                data = data_dict['datasets'].cuda()
-                output_dict = model.forward(data, train = False)
-                losses = {'NLL': loss_dict['NLL'].forward(output_dict)}
-
-                logger.log_data(output_dict, losses, split='test')
-
+            if opts.experiment == 'mnist':
                 # plot examples in the first batch
                 if count == 0:
                     input_plot = data
                     sample_plot = output_dict['means_x']  
-
                     print("Summarizing...")
-                    summaries = summarize_batch(input_plot, output_size=6)
+                    summaries = summarize_batch(opts, input_plot, output_size=6)
                     print("Summary complete!")     
-
                 count += 1
 
+        if opts.experiment == 'mnist':
             if epoch%opts.save_freq == 0:
                 logger.grid(input_plot, sample_plot, summaries=summaries, ncols=10, mode = 'summary')
-                #logger.grid(input_plot, sample_plot, ncols = 10, mode = 'test')
                 logger.save_model(model, str(epoch))
+
+
+        if opts.experiment == 'omniglot' or opts.experiment == 'youtube':
+            logger.log_image(output_dict, 'test')
 
     
     if opts.experiment == 'synthetic':    
