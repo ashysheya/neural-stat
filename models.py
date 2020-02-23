@@ -199,7 +199,7 @@ class SharedEncoder(nn.Module):
         elif self.experiment == 'mnist':
             return {'train_data_encoded': input_dict['train_data']}
 
-        elif self.experiment == 'omniglot':
+        elif self.experiment == 'omniglot' or self.experiment == 'youtube':
             datasets = input_dict['train_data']
             data_size = datasets.size()
             encoded = self.model(datasets.view(data_size[0] * data_size[1], *data_size[2:]))
