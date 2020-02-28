@@ -61,6 +61,7 @@ parser.add_argument('--z_dim', type=int, default=16,
 
 parser.add_argument('--x_dim', type=int, default=1, help='dimension of input')
 parser.add_argument('--h_dim', type=int, default=4096, help='dimension of input')
+parser.add_argument('--n_channels', type=int, default=3, help='number of channels in the image (=3 for RGB)')
 
 # Logging options
 parser.add_argument('--model_name', type=str, default='youtube_10:02:2020_22:24:41/last')

@@ -13,7 +13,7 @@ def add_dir(new_dir):
 
 
 dir_original = "C:/Users/Victor/Documents/Cambridge/Lent/MLMI4/Project/extended-cohn-kanade-images/cohn-kanade-images/"
-dir_resized = "C:/Users/Victor/Documents/Cambridge/Lent/MLMI4/Project/extended-cohn-kanade-images/resized/"
+dir_resized = "C:/Users/Victor/Documents/Cambridge/Lent/MLMI4/Project/extended-cohn-kanade-images/emotions_resized/"
 
 face_classifier_path = "C:/Users/Victor/Documents/Cambridge/Lent/MLMI4/Project/haarcascade_frontalface_default.xml"
 # Load the cascade for face detection
@@ -32,19 +32,29 @@ for person in tqdm(os.listdir(dir_original)):
             continue
         add_dir(dir_resized + person + "/" + video)
 
-        for frame in os.listdir(dir_original + person + "/" + video)[-7:]:  # Take last 7 images
+        # Check number of frames: need at least 5
+        n_frames = len(os.listdir(dir_original + person + "/" + video)[-8:])
+
+        for frame in os.listdir(dir_original + person + "/" + video)[-8:]:  # Take last 8 images (show emotions)
             img_dir = dir_original + person + "/" + video + "/" + frame
             save_dir = dir_resized + person + "/" + video + "/" + frame
+
+            if n_frames < 6:  # if not enough frames, warning (should not consider this video if want large dataset)
+                print("Warning: ", person + "/" + video, " has less than 6 frames.")
+                break
 
             # Read the input image
             img = cv2.imread(img_dir)
             gray = cv2.cvtColor(img, cv2.COLOR_BGR2GRAY)  # Convert into grayscale
 
             # Detect and extract faces
-            faces = face_cascade.detectMultiScale(gray, minNeighbors=3)
+            faces = face_cascade.detectMultiScale(gray, minNeighbors=10)
             if len(faces) == 0:
                 print("Could not find face in frame ", frame)
+                n_frames -= 1
                 continue
+            elif len(faces) > 1:
+                print("More than one face found in frame ", frame, ". Check its validity.")
 
             img_face = gray[faces[0][1]:faces[0][1]+faces[0][3], faces[0][0]:faces[0][0]+faces[0][2]]
 

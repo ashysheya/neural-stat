@@ -13,13 +13,13 @@ def get_dataset(opts, split='train'):
               'val': slice(opts.train_num_persons + opts.test_num_persons, opts.total_num_persons)
              }
 
-    return YoutubeDataset(opts.data_dir, splits[split], opts.num_data_per_dataset)
+    return YoutubeDataset(opts.data_dir, splits[split], opts.num_data_per_dataset, opts.n_channels)
 
 
 class YoutubeDataset(Dataset):
     """Dataset for youtube faces experiment."""
 
-    def __init__(self, data_dir, persons_split=slice(0, 1595), num_data_per_dataset=5):
+    def __init__(self, data_dir, persons_split=slice(0, 1595), num_data_per_dataset=5, n_channels=3):
         """
         :param data_dir: string, directory for the cropped and scaled images of the youtube dataset
         :param split: slice, selection of the persons for the dataset
@@ -28,6 +28,7 @@ class YoutubeDataset(Dataset):
         self.data_dir = data_dir
         self.persons = os.listdir(self.data_dir)[persons_split]
         self.num_data_per_dataset = num_data_per_dataset
+        self.n_channels = n_channels
 
         videos = []  # name for each video
         datasets = []
@@ -38,13 +39,17 @@ class YoutubeDataset(Dataset):
                 video_path = os.path.join(self.data_dir, person, video)
 
                 # Sample num_data_per_dataset frames from the given video, without replacement.
+                if len(os.listdir(os.path.join(self.data_dir, person, video))) < self.num_data_per_dataset:
+                    print("Not enough frames in folder ", os.path.join(self.data_dir, person, video))
+
                 dataset_frames = np.random.choice(os.listdir(os.path.join(self.data_dir, person, video)),
                                                   size=self.num_data_per_dataset, replace=False)
                 dataset = []
                 for frame in dataset_frames:
                     frame_path = os.path.join(video_path, frame)
-                    img = np.array(imread(frame_path).transpose(2, 0, 1)).astype(np.float32) / 255
-
+                    img = imread(frame_path)
+                    img = np.array(img.reshape(img.shape[0], img.shape[1], self.n_channels)
+                                   .transpose(2, 0, 1)).astype(np.float32) / 255
                     # Image must be size (num_channels, w, h) --> transpose, and append to list of images
                     dataset.append(img)
 

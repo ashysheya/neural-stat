@@ -18,7 +18,7 @@ class NeuralStatistician(nn.Module):
 
     def __init__(self, opts):
         super(NeuralStatistician, self).__init__()
-        self.shared_encoder = SharedEncoder(opts.experiment)
+        self.shared_encoder = SharedEncoder(opts.experiment, opts.n_channels)
         self.statistic_network = StatisticNetwork(opts.experiment, opts.context_dim,
             opts.h_dim, opts.masked)
         self.context_prior = ContextPriorNetwork(opts.context_dim, opts.type_prior)
@@ -27,7 +27,7 @@ class NeuralStatistician(nn.Module):
         self.latent_decoder_network = LatentDecoderNetwork(opts.experiment, 
             opts.num_stochastic_layers, opts.z_dim, opts.context_dim)
         self.observation_decoder_network = ObservationDecoderNetwork(opts.experiment, 
-            opts.num_stochastic_layers, opts.z_dim, opts.context_dim, opts.h_dim, opts.x_dim)
+            opts.num_stochastic_layers, opts.z_dim, opts.context_dim, opts.h_dim, opts.x_dim, opts.n_channels)
 
         self.apply(self.init_weights)
 
@@ -117,9 +117,10 @@ class NeuralStatistician(nn.Module):
 
 class SharedEncoder(nn.Module):
     """Shared encoder for encoding x -> h."""
-    def __init__(self, experiment):
+    def __init__(self, experiment, n_channels):
         super(SharedEncoder, self).__init__()
         self.experiment = experiment
+        self.n_channels = n_channels  # Number of channels (RGB:3, grayscale:1)
 
         if self.experiment == 'youtube':
             # Youtube shared encoder is as follows:
@@ -133,7 +134,7 @@ class SharedEncoder(nn.Module):
             # - conv2d 256 feature maps with 3x3 kernels, stride 2 and ELU activations
             # All conv2d layers use batch normalization
             # Input shape is (-1, 3, 64, 64)
-            self.model = nn.Sequential(nn.Conv2d(3, 32, kernel_size=3, padding=1, stride=1),
+            self.model = nn.Sequential(nn.Conv2d(self.n_channels, 32, kernel_size=3, padding=1, stride=1),
                                        nn.BatchNorm2d(num_features=32),
                                        nn.ELU(inplace=True),
                                        nn.Conv2d(32, 32, kernel_size=3, padding=1, stride=1),
@@ -586,7 +587,7 @@ class ObservationDecoderNetwork(nn.Module):
     Network that firstly concatenates z_1, ..., z_L, c to produce mu, sigma for x.
     Returns mu_x, sigma_x
     """
-    def __init__(self, experiment, num_stochastic_layers, z_dim, context_dim, h_dim, x_dim):
+    def __init__(self, experiment, num_stochastic_layers, z_dim, context_dim, h_dim, x_dim, n_channels):
         """
         :param num_stochastic_layers: number of stochastic layers in the model
         :param z_dim: dimension of each stochastic layer
@@ -600,6 +601,7 @@ class ObservationDecoderNetwork(nn.Module):
         self.context_dim = context_dim
         self.h_dim = h_dim
         self.x_dim = x_dim
+        self.n_channels = n_channels
 
         input_dim = num_stochastic_layers*z_dim + context_dim
 
@@ -614,7 +616,7 @@ class ObservationDecoderNetwork(nn.Module):
 
         elif experiment == 'youtube':
             # Shared learnable log variance parameter (from https://github.com/conormdurkan/neural-statistician)
-            self.logvar = nn.Parameter(torch.randn(1, 3, 64, 64).cuda())
+            self.logvar = nn.Parameter(torch.randn(1, self.n_channels, 64, 64).cuda())
 
             self.pre_conv = nn.Sequential(nn.Linear(input_dim, 1000),
                                           nn.ELU(inplace=True),
@@ -664,8 +666,8 @@ class ObservationDecoderNetwork(nn.Module):
                                       # Dim is now (-1, 32, 64, 64)
                                       nn.BatchNorm2d(num_features=32),
                                       nn.ELU(inplace=True),
-                                      nn.Conv2d(32, 3, kernel_size=1),
-                                      # Dim is now (-1, 3, 64, 64)
+                                      nn.Conv2d(32, self.n_channels, kernel_size=1),
+                                      # Dim is now (-1, n_channels, 64, 64)
                                       ClampLayer(-10, 10)
                                       )
 
