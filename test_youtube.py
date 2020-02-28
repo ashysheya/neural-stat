@@ -38,6 +38,9 @@ parser.add_argument('--train_num_persons', type=int, default=1395,
 parser.add_argument('--test_num_persons', type=int, default=100,
     help='number of persons in the testing datasets for youtube experiment')
 
+parser.add_argument('--total_num_persons', type=int, default=1595,
+    help='total number of persons in the datasets - set to 25 for the poses experiment')
+
 # For youtube, can either sample conditioned on data, or sample from the context distribution
 parser.add_argument('--test_conditioned', action='store_true', help='whether to test conditioned on samples')
 

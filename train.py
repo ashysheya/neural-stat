@@ -34,6 +34,9 @@ parser.add_argument('--train_num_persons', type=int, default=1395,
 parser.add_argument('--test_num_persons', type=int, default=100,
     help='number of persons in the testing datasets for youtube experiment')
 
+parser.add_argument('--total_num_persons', type=int, default=1595,
+    help='total number of persons in the datasets - set to 25 for the poses experiment')
+
 parser.add_argument('--num_data_per_dataset', type=int, default=200,
     help='number of samples per dataset')
 

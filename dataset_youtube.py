@@ -10,7 +10,7 @@ def get_dataset(opts, split='train'):
 
     splits = {'train': slice(0, opts.train_num_persons),
               'test': slice(opts.train_num_persons, opts.train_num_persons + opts.test_num_persons),
-              'val': slice(opts.train_num_persons + opts.test_num_persons, 1595)
+              'val': slice(opts.train_num_persons + opts.test_num_persons, opts.total_num_persons)
              }
 
     return YoutubeDataset(opts.data_dir, splits[split], opts.num_data_per_dataset)
