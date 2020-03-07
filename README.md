@@ -16,7 +16,7 @@ Test a model:
 python test_synthetic.py --model_name path_to_your_model 
 ```
 
-Test script will save contexts, distribution, means and variances for each sampled dataset as numpy array. 
+Test script will save mean contexts, distribution, means and variances for each sampled dataset as numpy array. 
 
 Our visualisation of these numpy arrays:
 
@@ -26,4 +26,41 @@ The following image shows 3-D scatter plots of the summary statistics learned. E
 over the context. Left plot shows points colored by distribution family, center plot colored by the mean and
 right plot colored by the variance. The plots have been rotated to illustrative angles.
 
+## Spatial MNIST experiment
+
+Train a model:
+
+```
+python train.py 
+```
+
+Test a model:
+
+```
+python test_synthetic.py 
+```
+
+TODO: add results for this experiment
+
+## Omniglot experiment
+
+Train a model:
+
+```
+python train.py --experiment omniglot --nll bernoulli --num_data_per_dataset 5 --num_epochs 400 \
+--context_dim 512 --masked --z_dim 16 --h_dim 4096 --batch_size 32 --lr 0.0001 --tensorboard
+```
+
+To sample from trained model, conditioned on unseen OMNIGLOT classes:
+
+```
+python test_omniglot.py --experiment omniglot --num_data_per_dataset 5 --num_samples_per_dataset 5 \
+--context_dim 512 --masked --z_dim 16 --h_dim 4096 --batch_size 16 --model_name your_model_name
+```
+
+Our samples from trained model for unseen omniglot classes:
+
+![](readme_images/omniglot_0.jpg)
+![](readme_images/omniglot_60.jpg)
+![](readme_images/omniglot_75.jpg)
 
