@@ -63,3 +63,83 @@ Our samples from trained model for unseen omniglot classes:
 ![2](readme_images/omniglot_60.png)
 ![3](readme_images/omniglot_75.png)
 
+Few-shot learning to OMNIGLOT unseen classes. Left rows are input sets, right rows are samples given the inputs. The results were not cherry-picked. 
+
+To sample from trained model, conditioned on MNIST:
+
+```
+python test_omniglot.py --experiment omniglot --num_data_per_dataset 5 --num_samples_per_dataset 5 \
+--context_dim 512 --masked --z_dim 16 --h_dim 4096 --batch_size 16 --model_name your_model_name --test_mnist
+```
+
+Our samples from trained model for unseen omniglot classes:
+
+![2](readme_images/mnist_60.png)
+![3](readme_images/mnist_45.png)
+
+Few-shot learning from OMNIGLOT to MNIST. Left rows are input sets, right rows are samples given the inputs. The results were not cherry-picked. 
+
+To get classification accuracy for a few-shot learning task with M classes using K samples per class:
+
+```
+python test_omniglot_accuracy.py --experiment omniglot --num_data_per_dataset K --num_classes M \
+--context_dim 512 --masked --z_dim 16 --h_dim 4096 --batch_size 20 \
+--model_name your_model_name
+```
+
+To get results on MNIST dataset include **--test_mnist** option.
+
+![table](readme_images/table.png)
+
+Table comparing comapring results obtained with our implementation and the ones provided in the paper. 
+
+## YouTube Faces
+
+Train a model:
+
+```
+python train.py 
+```
+
+Test a model:
+
+```
+python test_synthetic.py 
+```
+
+TODO: add results for this experiment
+
+## Extension
+
+For conditioning on the label, we slightly changed the proposed graphical model
+by introducing observed variable y:
+
+![graph_extension](readme_images/extension.png)
+
+The code can be find in **movements** branch of our repo. 
+
+Train a model:
+
+```
+python train.py --data_dir=emotions_resized/ --z_dim=16 --context_dim=500 \
+--h_dim=4096 --num_epochs=5000 --num_data_per_dataset=6 --experiment=youtube --x_dim=4096 \
+--n_channels=1 --total_num_persons=123 --train_num_persons=113 --test_num_persons=5 \
+--use_labels --num_labels 8 --tensorboard
+```
+
+Sample from a trained model:
+
+```
+python test_youtube.py --data_dir=emotions_resized/ --z_dim=16 --context_dim=500 \
+--h_dim=4096 --num_data_per_dataset=6 --experiment=youtube --x_dim=4096 \
+--n_channels=1 --total_num_persons=123 --train_num_persons=113 --test_num_persons=5 \
+--use_labels --num_labels 8 --model_name your_model_name
+```
+
+To train our model we used [CK+ emotions database](http://www.consortium.ri.cmu.edu/ckagree/). 
+
+Sample faces conditioned on emotion label:
+
+![extension](readme_images/extension_res.png)
+
+
