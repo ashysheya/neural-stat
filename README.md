@@ -89,7 +89,7 @@ python test_omniglot_accuracy.py --experiment omniglot --num_data_per_dataset K 
 
 To get results on MNIST dataset include **--test_mnist** option.
 
-![table](readme_images/table.png)
+![table](readme_images/table.png)<!-- .element height="50%" width="50%" -->
 
 Table comparing comapring results obtained with our implementation and the ones provided in the paper. 
 
@@ -114,7 +114,7 @@ TODO: add results for this experiment
 For conditioning on the label, we slightly changed the proposed graphical model
 by introducing observed variable y:
 
-![graph_extension](readme_images/extension.png)
+![graph_extension](readme_images/extension.png)<!-- .element height="50%" width="50%" -->
 
 The code can be find in **movements** branch of our repo. 
 
