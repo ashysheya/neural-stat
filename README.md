@@ -1,6 +1,6 @@
 # Towards a neural statistician
 
-This repo contains PyTorch implementation of the generative model proposed in [Towards a neural statistician (Edwards and Storkey, ICLR 2017)](https://arxiv.org/pdf/1606.02185.pdf). The implementation contains our replication of all experiments provided in the paper. It also has an extension that allows for generating datasets conditioned on specific labels. 
+This repo contains PyTorch implementation of the generative model proposed in [Towards a neural statistician (Edwards and Storkey, ICLR 2017)](https://arxiv.org/pdf/1606.02185.pdf). The implementation contains our replication of all experiments provided in the paper. It also has an extension that allows for generating datasets conditioned on some labels. 
 
 ## Synthetic data experiment
 
@@ -31,17 +31,16 @@ right plot colored by the variance. The plots have been rotated to illustrative 
 Train a model:
 
 ```
-python train.py --experiment 'mnist' --num_epochs 100 --context_dim 64 --num_stochastic_layers 3 --z_dim 2 --x_dim 2 --h_dim 2
+python train.py 
 ```
 
 Test a model:
 
-Since we only sample digits conditioned on the inputs, separate commands are not required.
+```
+python test_synthetic.py 
+```
 
-The sampled spatial MNIST digits conditioned on the inputs represent sensible subsets of a dataset:
-![1](readme_images/mnist_conditioned.png)
-
-where blue and red dots are the input digits as well as 6-sample summaries, and orange digits are the conditioned samples from spatial MNIST data.
+TODO: add results for this experiment
 
 ## Omniglot experiment
 
@@ -99,16 +98,27 @@ Table comparing results obtained with our implementation and the ones provided i
 Train a model:
 
 ```
-python train.py 
+python3 train.py --data_dir $YOUTUBE_DATABASE_DIRECTORY$ --z_dim 16 --context_dim 500 --h_dim 4096 --num_epochs 10 --num_data_per_dataset 5 --experiment youtube --x_dim 12288 \
 ```
 
-Test a model:
+To sample new frames conditioned on input frames: 
 
 ```
-python test_synthetic.py 
+python3 test_youtube.py --data_dir $YOUTUBE_DATABASE_DIRECTORY$ --z_dim 16 --context_dim 500 --num_data_per_dataset 5 --num_samples_per_dataset 5 --experiment youtube --h_dim 4096 --x_dim 12288 --test_conditioned --model_dir model_params --model_name youtube_20:02:2020_15:17:49/last \
 ```
 
-TODO: add results for this experiment
+The ```--model_name``` option should be changed to the latest trained model.
+
+![youtube_conditioned](sample_conditioned/youtube_0.png)
+
+Frames (five rightmost images) sampled conditioned on input frames (five leftmost images).
+
+To sample new frames from a context sampled from the prior (i.e. generate new faces), remove the --test_conditioned option.
+
+![youtube_unseen](sample/youtube_unseen.png)
+
+Frames obtained from a context sampled from a prior with zero mean and unit variance.
+
 
 ## Extension
 
