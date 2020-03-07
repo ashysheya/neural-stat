@@ -31,16 +31,17 @@ right plot colored by the variance. The plots have been rotated to illustrative 
 Train a model:
 
 ```
-python train.py 
+python train.py --experiment 'mnist' --num_epochs 100 --context_dim 64 --num_stochastic_layers 3 --z_dim 2 --x_dim 2 --h_dim 2
 ```
 
 Test a model:
 
-```
-python test_synthetic.py 
-```
+Since we only sample digits conditioned on the inputs, separate commands are not required.
 
-TODO: add results for this experiment
+The sampled spatial MNIST digits conditioned on the inputs represent sensible subsets of a dataset:
+![1](readme_images/mnist_conditioned.png)
+
+where blue and red dots are the input digits as well as 6-sample summaries, and orange digits are the conditioned samples from spatial MNIST data.
 
 ## Omniglot experiment
 
