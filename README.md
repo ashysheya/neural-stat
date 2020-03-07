@@ -114,7 +114,7 @@ The ```--model_name``` option should be changed to the latest trained model.
 
 Frames (five rightmost images) sampled conditioned on input frames (five leftmost images).
 
-To sample new frames from a context sampled from the prior (i.e. generate new faces), remove the --test_conditioned option.
+To sample new frames from a context sampled from the prior (i.e. generate new faces), remove the ```--test_conditioned``` option.
 
 ![youtube_unseen](sample/youtube_unseen.png)
 
