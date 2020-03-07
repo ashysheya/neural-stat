@@ -60,7 +60,7 @@ python test_omniglot.py --experiment omniglot --num_data_per_dataset 5 --num_sam
 
 Our samples from trained model for unseen omniglot classes:
 
-![](readme_images/omniglot_0.jpg)
-![](readme_images/omniglot_60.jpg)
-![](readme_images/omniglot_75.jpg)
+![1](readme_images/omniglot_0.jpg)
+![2](readme_images/omniglot_60.jpg)
+![3](readme_images/omniglot_75.jpg)
 
