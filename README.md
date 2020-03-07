@@ -72,7 +72,7 @@ python test_omniglot.py --experiment omniglot --num_data_per_dataset 5 --num_sam
 --context_dim 512 --masked --z_dim 16 --h_dim 4096 --batch_size 16 --model_name your_model_name --test_mnist
 ```
 
-Our samples from trained model for unseen omniglot classes:
+Our samples from trained model for MNIST:
 
 ![2](readme_images/mnist_60.png)
 ![3](readme_images/mnist_45.png)
