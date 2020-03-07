@@ -91,7 +91,7 @@ To get results on MNIST dataset include **--test_mnist** option.
 
 ![table](readme_images/table.png)
 
-Table comparing comapring results obtained with our implementation and the ones provided in the paper. 
+Table comparing results obtained with our implementation and the ones provided in the paper. 
 
 ## YouTube Faces
 
