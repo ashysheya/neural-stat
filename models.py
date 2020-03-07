@@ -1,4 +1,3 @@
-
 import torch.nn as nn
 import torch
 import math
@@ -20,19 +19,22 @@ class NeuralStatistician(nn.Module):
         super(NeuralStatistician, self).__init__()
         self.shared_encoder = SharedEncoder(opts.experiment, opts.n_channels)
         self.statistic_network = StatisticNetwork(opts.experiment, opts.context_dim,
-            opts.h_dim, opts.masked)
-        self.context_prior = ContextPriorNetwork(opts.context_dim, opts.type_prior)
+            opts.h_dim, opts.masked, opts.use_labels, opts.num_labels)
+        self.context_prior = ContextPriorNetwork(opts.context_dim, opts.use_labels, opts.num_labels)
         self.inference_network = InferenceNetwork(opts.experiment, opts.num_stochastic_layers,
             opts.z_dim, opts.context_dim, opts.h_dim)
         self.latent_decoder_network = LatentDecoderNetwork(opts.experiment, 
             opts.num_stochastic_layers, opts.z_dim, opts.context_dim)
         self.observation_decoder_network = ObservationDecoderNetwork(opts.experiment, 
-            opts.num_stochastic_layers, opts.z_dim, opts.context_dim, opts.h_dim, opts.x_dim, opts.n_channels)
+            opts.num_stochastic_layers, opts.z_dim, opts.context_dim, 
+            opts.h_dim, opts.x_dim, opts.n_channels, opts.use_labels, opts.num_labels)
 
         self.apply(self.init_weights)
 
     def forward(self, datasets, train=True):
-        outputs = {'train_data': datasets, 'train': train}
+        outputs = {'train_data': datasets['datasets'], 'train': train}
+        if 'labels' in datasets:
+            outputs['labels'] = datasets['labels']
 
         # get encoded version of input: x-->h
         shared_encoder_dict = self.shared_encoder(outputs)
@@ -60,8 +62,8 @@ class NeuralStatistician(nn.Module):
 
         return outputs
 
-    def sample_conditional(self, datasets, num_samples_per_dataset):
-        outputs = {'train_data': datasets, 'train': False}
+    def sample_conditional(self, datasets, num_samples_per_dataset, labels=None):
+        outputs = {'train_data': datasets, 'train': False, 'labels': labels}
 
         shared_encoder_dict = self.shared_encoder(outputs)
         outputs.update(shared_encoder_dict)
@@ -80,10 +82,10 @@ class NeuralStatistician(nn.Module):
 
         return outputs
 
-    def sample(self, num_samples_per_dataset, num_datasets):
-        outputs = {'train': False}
+    def sample(self, num_samples_per_dataset, num_datasets, labels=None):
+        outputs = {'train': False, 'labels': labels}
 
-        context_prior_dict = self.context_prior.sample(num_datasets)
+        context_prior_dict = self.context_prior.sample(num_datasets, labels=labels)
         outputs.update(context_prior_dict)
 
         latent_variables_dict = self.latent_decoder_network.sample(outputs,
@@ -95,8 +97,8 @@ class NeuralStatistician(nn.Module):
 
         return outputs
 
-    def context_params(self, datasets):
-        outputs = {'train_data': datasets, 'train': False}
+    def context_params(self, datasets, labels=None):
+        outputs = {'train_data': datasets, 'train': False, 'labels': labels}
 
         shared_encoder_dict = self.shared_encoder(outputs)
         outputs.update(shared_encoder_dict)
@@ -194,10 +196,7 @@ class SharedEncoder(nn.Module):
             self.model = nn.Sequential(*module_list)
 
     def forward(self, input_dict):
-        if self.experiment == 'synthetic':
-            return {'train_data_encoded': input_dict['train_data']}
-
-        elif self.experiment == 'mnist':
+        if self.experiment == 'synthetic' or self.experiment == 'mnist':
             return {'train_data_encoded': input_dict['train_data']}
 
         elif self.experiment == 'omniglot' or self.experiment == 'youtube':
@@ -210,12 +209,14 @@ class SharedEncoder(nn.Module):
 
 class StatisticNetwork(nn.Module):
     """Variational approximation q(c|D)."""
-    def __init__(self, experiment, context_dim, h_dim, masked=False):
+    def __init__(self, experiment, context_dim, h_dim, masked=False, use_labels=False, num_labels=7):
         super(StatisticNetwork, self).__init__()
         self.experiment = experiment
         self.masked = masked
         self.h_dim = h_dim
         self.context_dim = context_dim
+        self.use_labels = use_labels
+        self.num_labels = num_labels
 
         if experiment == 'synthetic':
             self.before_pooling = nn.Sequential(nn.Linear(h_dim, 128),
@@ -235,7 +236,7 @@ class StatisticNetwork(nn.Module):
         elif experiment == 'youtube':
             self.before_pooling = nn.Sequential(nn.Linear(h_dim, 1000),
                                                 nn.ELU(inplace=True))
-            self.after_pooling = nn.Sequential(nn.Linear(1000, 1000),
+            self.after_pooling = nn.Sequential(nn.Linear(1000 + num_labels if use_labels else 1000, 1000),
                                                nn.ELU(inplace=True),
                                                nn.Linear(1000, 1000),
                                                nn.ELU(inplace=True),
@@ -306,6 +307,9 @@ class StatisticNetwork(nn.Module):
 
                 prestat_vector = torch.cat([prestat_vector, extra_feature], 1)
 
+        if self.use_labels:
+            prestat_vector = torch.cat([prestat_vector, input_dict['labels']], dim=1)
+
         outputs = self.after_pooling(prestat_vector)
         means = outputs[:, :self.context_dim]
         logvars = torch.clamp(outputs[:, self.context_dim:], -10, 10)
@@ -313,10 +317,17 @@ class StatisticNetwork(nn.Module):
         samples_expanded = samples[:, None].expand(-1, data_size[1], -1).contiguous()
         samples_expanded = samples_expanded.view(-1, self.context_dim)
 
-        return {'means_context': means,
-                'logvars_context': logvars,
-                'samples_context': samples, 
-                'samples_context_expanded': samples_expanded}
+        output_dict = {'means_context': means,
+            'logvars_context': logvars,
+            'samples_context': samples, 
+            'samples_context_expanded': samples_expanded}
+
+        if self.use_labels:
+            labels_expanded = input_dict['labels'][:, None].expand(-1, data_size[1], -1).contiguous()
+            labels_expanded = labels_expanded.view(-1, self.num_labels)
+            output_dict['labels_expanded'] = labels_expanded
+
+        return output_dict
 
     def sample(self, input_dict):
         output_dict = self.forward(input_dict)
@@ -325,14 +336,22 @@ class StatisticNetwork(nn.Module):
 
 class ContextPriorNetwork(nn.Module):
     """Prior for c, p(c)."""
-    def __init__(self, context_dim, type_prior='standard'):
+    def __init__(self, context_dim, use_labels=False, num_labels=7):
         """
         :param context_dim: int, dimension of the context vector
         :param type_prior: either neural network-based or standard gaussian
         """
         super(ContextPriorNetwork, self).__init__()
         self.context_dim = context_dim
-        self.type_prior = type_prior
+        self.use_labels = use_labels
+        self.num_labels = num_labels
+
+        if self.use_labels:
+            self.prior_network = nn.Sequential(nn.Linear(num_labels, 128),
+                nn.ReLU(True),
+                nn.Linear(128, 128),
+                nn.ReLU(True),
+                nn.Linear(128, 2*context_dim))
 
         # TODO: add neural-network based type for conditional variant
 
@@ -341,20 +360,32 @@ class ContextPriorNetwork(nn.Module):
         :param input_dict: dict that labels and context for required for prior
         :return: dict of means and log variance for prior
         """
-        if self.type_prior == 'standard':
+        if not self.use_labels:
             contexts = input_dict['samples_context']
             means, logvars = torch.zeros_like(contexts), torch.zeros_like(contexts)
             if contexts.is_cuda:
                 means = means.cuda()
                 logvars = logvars.cuda()
-            return {'means_context_prior': means,
-                    'logvars_context_prior': logvars}
 
-    def sample(self, num_datasets):
-        if self.type_prior == 'standard':
+        else:
+            labels = input_dict['labels']
+            outputs = self.prior_network(labels)
+            means = outputs[:, :self.context_dim]
+            logvars = torch.clamp(outputs[:, self.context_dim:], -10, 10)
+
+        return {'means_context_prior': means,
+                'logvars_context_prior': logvars}
+
+
+    def sample(self, num_datasets, labels=None):
+        if not self.use_labels:
             means = torch.zeros((num_datasets, self.context_dim)).cuda()
             logvars = torch.zeros_like(means).cuda()
-            return {'samples_context': sample_from_normal(means, logvars)}
+        else:
+            outputs = self.prior_network(labels)
+            means = outputs[:, :self.context_dim]
+            logvars = torch.clamp(outputs[:, self.context_dim:], -10, 10)
+        return {'samples_context': sample_from_normal(means, logvars)}
 
 class InferenceNetwork(nn.Module):
     """Variational approximation q(z_1, ..., z_L|c, x)."""
@@ -544,6 +575,12 @@ class LatentDecoderNetwork(nn.Module):
         outputs = {'samples_latent_z': [], 
                    'samples_context_expanded': context_expanded}
 
+        if input_dict['labels'] is not None:
+            labels = input_dict['labels']
+            labels_expanded = labels[:, None].expand(-1, num_samples_per_dataset, -1).contiguous()
+            labels_expanded = labels_expanded.view(-1, input_dict['labels'].size()[1])
+            outputs['labels_expanded'] = labels_expanded
+
         for i, module in enumerate(self.model):
             current_output = module.forward(current_input)
             means = current_output[:, :self.z_dim]
@@ -587,7 +624,8 @@ class ObservationDecoderNetwork(nn.Module):
     Network that firstly concatenates z_1, ..., z_L, c to produce mu, sigma for x.
     Returns mu_x, sigma_x
     """
-    def __init__(self, experiment, num_stochastic_layers, z_dim, context_dim, h_dim, x_dim, n_channels):
+    def __init__(self, experiment, num_stochastic_layers, z_dim, context_dim, h_dim, x_dim, n_channels,
+     use_labels=False, num_labels=7):
         """
         :param num_stochastic_layers: number of stochastic layers in the model
         :param z_dim: dimension of each stochastic layer
@@ -602,8 +640,13 @@ class ObservationDecoderNetwork(nn.Module):
         self.h_dim = h_dim
         self.x_dim = x_dim
         self.n_channels = n_channels
+        self.use_labels = use_labels
+        self.num_labels = num_labels
 
         input_dim = num_stochastic_layers*z_dim + context_dim
+
+        if self.use_labels:
+            input_dim += self.num_labels
 
         if experiment == 'synthetic':
             self.model = nn.Sequential(nn.Linear(input_dim, 128),
@@ -616,7 +659,8 @@ class ObservationDecoderNetwork(nn.Module):
 
         elif experiment == 'youtube':
             # Shared learnable log variance parameter (from https://github.com/conormdurkan/neural-statistician)
-            self.logvar = nn.Parameter(torch.randn(1, self.n_channels, 64, 64).cuda())
+            #self.logvar = nn.Parameter(torch.randn(1, self.n_channels, 64, 64).cuda())
+            self.logvar = nn.Parameter(torch.randn(1, self.n_channels, 64, 64))
 
             self.pre_conv = nn.Sequential(nn.Linear(input_dim, 1000),
                                           nn.ELU(inplace=True),
@@ -714,6 +758,9 @@ class ObservationDecoderNetwork(nn.Module):
         of the distribution for x.
         """
         context_expanded = input_dict['samples_context_expanded']
+        if self.use_labels:
+            context_expanded = torch.cat([context_expanded, input_dict['labels_expanded']], dim=1)
+
         latent_z = input_dict['samples_latent_z']
         inputs = torch.cat([context_expanded] + latent_z, dim=1)
 

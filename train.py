@@ -61,9 +61,6 @@ parser.add_argument('--context_dim', type=int, default=3, help='context dimensio
 parser.add_argument('--masked', action='store_true',
     help='whether to use masking during training')
 
-parser.add_argument('--type_prior', type=str, default='standard',
-    help='either use standard gaussian prior or prior conditioned on labels')
-
 parser.add_argument('--num_stochastic_layers', type=int, default=1,
     help='number of stochastic layers')
 
@@ -75,6 +72,10 @@ parser.add_argument('--x_dim', type=int, default=1, help='dimension of input')
 parser.add_argument('--h_dim', type=int, default=1, help='dimension of h after shared encoder')
 
 parser.add_argument('--n_channels', type=int, default=3, help='number of channels in the image (=3 for RGB)')
+
+parser.add_argument('--use_labels', action='store_true')
+
+parser.add_argument('--num_labels', type=int, default=7)
 
 # Logging options
 parser.add_argument('--tensorboard', action='store_true', help='whether to use tensorboard')
@@ -94,6 +95,7 @@ dataset_module = importlib.import_module('_'.join(['dataset', opts.experiment]))
 train_dataset = dataset_module.get_dataset(opts, split='train')
 train_dataloader = DataLoader(train_dataset, batch_size=opts.batch_size, 
     shuffle=True, num_workers=10)
+print(len(train_dataset))
 
 test_dataset = dataset_module.get_dataset(opts, split='val')
 test_dataloader = DataLoader(test_dataset, batch_size=opts.batch_size, 
@@ -112,7 +114,9 @@ alpha = 1.0
 for epoch in tqdm.tqdm(range(opts.num_epochs)):
     model.train()
     for data_dict in train_dataloader:
-        data = data_dict['datasets'].cuda()
+        data = {'datasets': data_dict['datasets'].cuda()}
+        if opts.use_labels:
+            data['labels'] = data_dict['labels'].cuda()
 
         optimizer.zero_grad()
 
@@ -156,7 +160,10 @@ for epoch in tqdm.tqdm(range(opts.num_epochs)):
 
         for data_dict in test_dataloader:
 
-            data = data_dict['datasets'].cuda()
+            data = {'datasets': data_dict['datasets'].cuda()}
+            if opts.use_labels:
+                data['labels'] = data_dict['labels'].cuda()
+            
             output_dict = model.forward(data, train=False)
             losses = {'NLL': loss_dict['NLL'].forward(output_dict)}
 

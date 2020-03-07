@@ -68,6 +68,10 @@ parser.add_argument('--model_name', type=str, default='youtube_10:02:2020_22:24:
 parser.add_argument('--model_dir', type=str, default='model_params')
 parser.add_argument('--result_dir', type=str, default='results')
 
+parser.add_argument('--use_labels', action='store_true')
+
+parser.add_argument('--num_labels', type=int, default=8)
+
 
 opts = parser.parse_args()
 
@@ -76,7 +80,8 @@ if opts.test_conditioned:
     test_dataset = dataset_module.get_dataset(opts, split='test')
     test_dataloader = DataLoader(test_dataset, batch_size=opts.batch_size, shuffle=True)
 
-model = get_model(opts).cuda()
+#model = get_model(opts).cuda()
+model = get_model(opts)
 
 # Load model parameters
 model.load_state_dict(torch.load(f'{opts.model_dir}/{opts.model_name}'))
@@ -91,7 +96,11 @@ with torch.no_grad():
     if opts.test_conditioned:
         for i, data_dict in enumerate(test_dataloader):
             data = data_dict['datasets'].cuda()
-            output_dict = model.sample_conditional(data, opts.num_samples_per_dataset)
+            if opts.use_labels:
+                labels = data_dict['labels'].cuda()
+            else:
+                labels = None
+            output_dict = model.sample_conditional(data, opts.num_samples_per_dataset, labels=labels)
 
             samples = output_dict['means_x'].data.cpu()
             data = data.view_as(samples).data.cpu()
@@ -104,10 +113,21 @@ with torch.no_grad():
             im.save(f'{opts.result_dir}/{opts.model_name}/{dataset_name}_{i}_conditioned.png')
 
     else:
-        output_dict = model.sample(opts.num_samples_per_dataset, opts.batch_size)
-        samples = output_dict['means_x'].data.cpu()
+        for i in range(5):
+            if opts.use_labels:
+                #labels = torch.eye(opts.num_labels).cuda()
+                labels = torch.eye(opts.num_labels)
+                b_s = opts.num_labels
+            else:
+                labels = None
+                b_s = opts.batch_size
+            
+            output_dict = model.sample(opts.num_samples_per_dataset, b_s, labels)
 
-        data_gen = make_grid(samples, nrow=opts.num_samples_per_dataset)
+            #samples = output_dict['means_x'].data.cpu()
+            samples = output_dict['means_x'].data
 
-        im = Image.fromarray(np.uint8(normalize_img(data_gen.numpy().transpose((1, 2, 0)))*255))
-        im.save(f'{opts.result_dir}/{opts.model_name}/{dataset_name}_unseen.png')
+            data_gen = make_grid(samples, nrow=opts.num_samples_per_dataset)
+
+            im = Image.fromarray(np.uint8(normalize_img(data_gen.numpy().transpose((1, 2, 0)))*255))
+            im.save(f'{opts.result_dir}/{opts.model_name}/{dataset_name}_unseen_{i}.png')
