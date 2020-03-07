@@ -116,7 +116,7 @@ by introducing observed variable y:
 
 ![graph_extension](readme_images/extension.png)
 
-The code can be find in **movements** branch of our repo. 
+The code can be found in **movements** branch of our repo. 
 
 Train a model:
 
@@ -127,6 +127,7 @@ python train.py --data_dir=emotions_resized/ --z_dim=16 --context_dim=500 \
 --use_labels --num_labels 8 --tensorboard
 ```
 
+Note that we maintained the --experiment=youtube option due to the similarity of the task to the Youtube Database experiment.
 Sample from a trained model:
 
 ```
@@ -136,7 +137,7 @@ python test_youtube.py --data_dir=emotions_resized/ --z_dim=16 --context_dim=500
 --use_labels --num_labels 8 --model_name your_model_name
 ```
 
-To train our model we used [CK+ emotions database](http://www.consortium.ri.cmu.edu/ckagree/). 
+To train our model we used [CK+ emotions database](http://www.consortium.ri.cmu.edu/ckagree/).
 
 Sample faces conditioned on emotion label:
 
