@@ -3,6 +3,8 @@ import torch
 from torch.autograd import Variable
 from itertools import combinations
 
+device = torch.device('cpu')
+
 # def preprocess_distribution_parameters(distribution, means, variances):
 #     """
 #     Auxiliary function that return parameters for numpy
@@ -68,7 +70,7 @@ def sample_from_normal(mean, logvar):
     """
     noise = torch.FloatTensor(logvar.size()).normal_()
     if logvar.is_cuda:
-        noise = noise.cuda()
+        noise = noise.to(device)
     return mean + torch.exp(0.5*logvar)*noise
 
 def generate_distribution(distribution, num_data_per_dataset):
@@ -151,7 +153,7 @@ def summarize(dataset, output_size=6):
 
         for subset_index in subset_indices:
             # pull out subset, numpy indexing will make this much easier
-            ix = Variable(torch.LongTensor(subset_index).cuda())
+            ix = Variable(torch.LongTensor(subset_index).to(device))
             subset = dataset.index_select(1, ix)
 
             # calculate approximate posterior over subset
@@ -168,7 +170,7 @@ def summarize(dataset, output_size=6):
 
         # determine which samples to keep
         to_keep = subset_indices[~best_index]
-        to_keep = Variable(torch.LongTensor(to_keep).cuda())
+        to_keep = Variable(torch.LongTensor(to_keep).to(device))
 
         # keep only desired samples
         dataset = dataset.index_select(1, to_keep)

@@ -6,6 +6,8 @@ from models import get_stats
 from losses import KLDivergence
 import tqdm
 
+device = torch.device('cpu')
+
 
 # adapt from https://github.com/conormdurkan/neural-statistician/blob/master/spatial/spatialmodel.py
 def summarize_batch(opts, inputs, output_size=6):
@@ -18,7 +20,7 @@ def summarize_batch(opts, inputs, output_size=6):
 
 
 def summarize(opts, dataset, output_size=6):
-    stats = get_stats(opts).cuda()
+    stats = get_stats(opts).to(device)
 
     # cast to torch Cuda Variable and reshape
     sample_size = 50
@@ -37,7 +39,7 @@ def summarize(opts, dataset, output_size=6):
 
         for subset_index in subset_indices:
             # pull out subset, numpy indexing will make this much easier
-            ix = Variable(torch.LongTensor(subset_index).cuda())
+            ix = Variable(torch.LongTensor(subset_index).to(device))
             subset = dataset.index_select(1, ix)
 
             # calculate approximate posterior over subset
@@ -54,7 +56,7 @@ def summarize(opts, dataset, output_size=6):
 
         # determine which samples to keep
         to_keep = subset_indices[~best_index]
-        to_keep = Variable(torch.LongTensor(to_keep).cuda())
+        to_keep = Variable(torch.LongTensor(to_keep).to(device))
 
         # keep only desired samples
         dataset = dataset.index_select(1, to_keep)

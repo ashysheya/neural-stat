@@ -12,6 +12,8 @@ from torch.utils.data import Dataset
 from torchvision.datasets import MNIST
 import torch.nn.functional as F
 
+device = torch.device('cpu')
+
 
 def get_dataset(opts, split = 'train'):
     """Function to get instance of SyntheticDataset given training options."""

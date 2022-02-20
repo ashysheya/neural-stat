@@ -1,9 +1,10 @@
-
 import torch.nn as nn
 import torch
 import math
 from utils import sample_from_normal
 import torch.nn.functional as F
+
+device = torch.device('cpu')
 
 def get_model(opts):
     return NeuralStatistician(opts)
@@ -288,10 +289,10 @@ class StatisticNetwork(nn.Module):
             if not self.masked:
                 prestat_vector = prestat_vector.view(data_size[0], data_size[1], -1).mean(dim=1)
             else:
-                mask_first = torch.ones((data_size[0], 1, 1)).cuda()
+                mask_first = torch.ones((data_size[0], 1, 1)).to(device)
                 if data_size[1] - 1 > 0:
                     p = 0.8 if input_dict['train'] else 1.0
-                    mask = torch.bernoulli(p*torch.ones((data_size[0], data_size[1] - 1, 1))).cuda()
+                    mask = torch.bernoulli(p*torch.ones((data_size[0], data_size[1] - 1, 1))).to(device)
                     mask = torch.cat([mask_first, mask], 1)
                 else:
                     mask = mask_first
@@ -344,15 +345,15 @@ class ContextPriorNetwork(nn.Module):
             contexts = input_dict['samples_context']
             means, logvars = torch.zeros_like(contexts), torch.zeros_like(contexts)
             if contexts.is_cuda:
-                means = means.cuda()
-                logvars = logvars.cuda()
+                means = means.to(device)
+                logvars = logvars.to(device)
             return {'means_context_prior': means,
                     'logvars_context_prior': logvars}
 
     def sample(self, num_datasets):
         if self.type_prior == 'standard':
-            means = torch.zeros((num_datasets, self.context_dim)).cuda()
-            logvars = torch.zeros_like(means).cuda()
+            means = torch.zeros((num_datasets, self.context_dim)).to(device)
+            logvars = torch.zeros_like(means).to(device)
             return {'samples_context': sample_from_normal(means, logvars)}
 
 class InferenceNetwork(nn.Module):
@@ -614,7 +615,7 @@ class ObservationDecoderNetwork(nn.Module):
 
         elif experiment == 'youtube':
             # Shared learnable log variance parameter (from https://github.com/conormdurkan/neural-statistician)
-            self.logvar = nn.Parameter(torch.randn(1, 3, 64, 64).cuda())
+            self.logvar = nn.Parameter(torch.randn(1, 3, 64, 64).to(device))
 
             self.pre_conv = nn.Sequential(nn.Linear(input_dim, 1000),
                                           nn.ELU(inplace=True),

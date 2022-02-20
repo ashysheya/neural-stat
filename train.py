@@ -13,6 +13,8 @@ from utils_mnist import summarize_batch
 # configuration for 'mnist' experienment
 # --experiment 'mnist' --num_epochs 100 --context_dim 64 --num_stochastic_layers 3 --z_dim 2 --x_dim 2 --h_dim 2
 
+device = torch.device('cpu')
+
 parser = argparse.ArgumentParser(description='Arguments for training procedure')
 
 # Experiment options
@@ -96,7 +98,7 @@ test_dataloader = DataLoader(test_dataset, batch_size=opts.batch_size,
 test_batch = next(iter(test_dataloader))
 
 # Initialize the Neural Statistician model in models.py
-model = get_model(opts).cuda()
+model = get_model(opts).to(device)
 
 loss_dict = get_loss(opts)
 logger = get_logger(opts)
@@ -107,7 +109,7 @@ alpha = 1.0
 for epoch in tqdm.tqdm(range(opts.num_epochs)):
     model.train()
     for data_dict in train_dataloader:
-        data = data_dict['datasets'].cuda()
+        data = data_dict['datasets'].to(device)
 
         optimizer.zero_grad()
 
@@ -151,7 +153,7 @@ for epoch in tqdm.tqdm(range(opts.num_epochs)):
 
         for data_dict in test_dataloader:
 
-            data = data_dict['datasets'].cuda()
+            data = data_dict['datasets'].to(device)
             output_dict = model.forward(data, train=False)
             losses = {'NLL': loss_dict['NLL'].forward(output_dict)}
 
