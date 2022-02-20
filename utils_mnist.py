@@ -12,7 +12,7 @@ device = torch.device('cpu')
 # adapt from https://github.com/conormdurkan/neural-statistician/blob/master/spatial/spatialmodel.py
 def summarize_batch(opts, inputs, output_size=6):
     summaries = []
-    for dataset in tqdm.tqdm(inputs):
+    for dataset in tqdm.tqdm(inputs[:10]):
         summary = summarize(opts, dataset, output_size=output_size)
         summaries.append(summary)
     summaries = torch.cat(summaries)

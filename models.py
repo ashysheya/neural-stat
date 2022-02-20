@@ -6,13 +6,6 @@ import torch.nn.functional as F
 
 device = torch.device('cpu')
 
-def get_model(opts):
-    return NeuralStatistician(opts)
-
-# for summarising points in the mnist experiment
-def get_stats(opts):
-    return StatisticNetwork(opts.experiment, opts.context_dim, opts.masked)
-
 
 class NeuralStatistician(nn.Module):
     """Class that represents the whole model from the paper"""
@@ -67,7 +60,7 @@ class NeuralStatistician(nn.Module):
         shared_encoder_dict = self.shared_encoder(outputs)
         outputs.update(shared_encoder_dict)
 
-        context_dict = self.statistic_network.sample(outputs)
+        context_dict = self.statistic_network.sample_conditional(outputs)
         outputs.update(context_dict)
 
         # get parameters for latent variables prior: p(z_1, .., z_L|c)
@@ -318,7 +311,7 @@ class StatisticNetwork(nn.Module):
                 'samples_context': samples, 
                 'samples_context_expanded': samples_expanded}
 
-    def sample(self, input_dict):
+    def sample_conditional(self, input_dict):
         output_dict = self.forward(input_dict)
         return {'samples_context': output_dict['means_context']}
 
@@ -535,11 +528,12 @@ class LatentDecoderNetwork(nn.Module):
         return outputs
 
     def sample(self, input_dict, num_samples_per_dataset):
-        context = input_dict['samples_context']
+        context = input_dict['samples_context']  # this is actually the mean (see NS.sample_conditional())
         context_expanded = context[:, None].expand(-1, num_samples_per_dataset, -1).contiguous()
         context_expanded = context_expanded.view(-1, self.context_dim)
 
         current_input = context_expanded
+        # current_input = context
 
         outputs = {'samples_latent_z': [], 
                    'samples_context_expanded': context_expanded}
@@ -732,3 +726,11 @@ class ObservationDecoderNetwork(nn.Module):
 
         else:
             return {'proba_x': outputs}
+
+
+def get_model(opts) -> NeuralStatistician:
+    return NeuralStatistician(opts)
+
+# for summarising points in the mnist experiment
+def get_stats(opts) -> StatisticNetwork:
+    return StatisticNetwork(opts.experiment, opts.context_dim, opts.masked)
