@@ -4,7 +4,7 @@ import math
 from utils import sample_from_normal
 import torch.nn.functional as F
 
-device = torch.device('cpu')
+device = torch.device("cuda:0" if torch.cuda.is_available() else "cpu")
 
 
 class NeuralStatistician(nn.Module):

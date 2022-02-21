@@ -15,7 +15,7 @@ from utils import sample_from_normal
 # configuration for 'mnist' experienment
 # --experiment 'mnist' --num_epochs 100 --context_dim 64 --num_stochastic_layers 3 --z_dim 2 --x_dim 2 --h_dim 2
 
-device = torch.device('cpu')
+device = torch.device("cuda:0" if torch.cuda.is_available() else "cpu")
 
 parser = argparse.ArgumentParser(description='Arguments for training procedure')
 

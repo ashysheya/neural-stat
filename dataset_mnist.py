@@ -12,7 +12,7 @@ from torch.utils.data import Dataset
 from torchvision.datasets import MNIST
 import torch.nn.functional as F
 
-device = torch.device('cpu')
+device = torch.device("cuda:0" if torch.cuda.is_available() else "cpu")
 
 
 def get_dataset(opts, split = 'train'):

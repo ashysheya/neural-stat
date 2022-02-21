@@ -6,7 +6,7 @@ from models import get_stats
 from losses import KLDivergence
 import tqdm
 
-device = torch.device('cpu')
+device = torch.device("cuda:0" if torch.cuda.is_available() else "cpu")
 
 
 # adapt from https://github.com/conormdurkan/neural-statistician/blob/master/spatial/spatialmodel.py

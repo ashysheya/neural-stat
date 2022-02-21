@@ -3,7 +3,7 @@ import torch
 from torch.autograd import Variable
 from itertools import combinations
 
-device = torch.device('cpu')
+device = torch.device("cuda:0" if torch.cuda.is_available() else "cpu")
 
 # def preprocess_distribution_parameters(distribution, means, variances):
 #     """
