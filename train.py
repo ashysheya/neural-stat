@@ -10,8 +10,12 @@ from losses import get_loss
 from logs import get_logger
 from utils_mnist import summarize_batch
 
+from utils import sample_from_normal
+
 # configuration for 'mnist' experienment
 # --experiment 'mnist' --num_epochs 100 --context_dim 64 --num_stochastic_layers 3 --z_dim 2 --x_dim 2 --h_dim 2
+
+device = torch.device("cuda:0" if torch.cuda.is_available() else "cpu")
 
 parser = argparse.ArgumentParser(description='Arguments for training procedure')
 
@@ -37,7 +41,7 @@ parser.add_argument('--test_num_persons', type=int, default=100,
 parser.add_argument('--num_data_per_dataset', type=int, default=200,
     help='number of samples per dataset')
 
-parser.add_argument('--batch_size', type=int, default=16, help='size of batch')
+parser.add_argument('--batch_size', type=int, default=16, help='size of batch') #16
 
 # Path for data directory if using the youtube experiment
 parser.add_argument('--data_dir', type=str, default=None, help='location of sampled youtube data')
@@ -75,7 +79,7 @@ parser.add_argument('--h_dim', type=int, default=1, help='dimension of h after s
 parser.add_argument('--tensorboard', action='store_true', help='whether to use tensorboard')
 parser.add_argument('--log_dir', type=str, default='logs')
 parser.add_argument('--save_dir', type=str, default='model_params')
-parser.add_argument('--save_freq', type=int, default=20)
+parser.add_argument('--save_freq', type=int, default=5)  # 20
 
 opts = parser.parse_args()
 
@@ -96,7 +100,7 @@ test_dataloader = DataLoader(test_dataset, batch_size=opts.batch_size,
 test_batch = next(iter(test_dataloader))
 
 # Initialize the Neural Statistician model in models.py
-model = get_model(opts).cuda()
+model = get_model(opts).to(device)
 
 loss_dict = get_loss(opts)
 logger = get_logger(opts)
@@ -107,7 +111,7 @@ alpha = 1.0
 for epoch in tqdm.tqdm(range(opts.num_epochs)):
     model.train()
     for data_dict in train_dataloader:
-        data = data_dict['datasets'].cuda()
+        data = data_dict['datasets'].to(device)
 
         optimizer.zero_grad()
 
@@ -151,8 +155,9 @@ for epoch in tqdm.tqdm(range(opts.num_epochs)):
 
         for data_dict in test_dataloader:
 
-            data = data_dict['datasets'].cuda()
-            output_dict = model.forward(data, train=False)
+            data = data_dict['datasets'].to(device)
+
+            output_dict = model.sample_conditional(data, num_samples_per_dataset=50)
             losses = {'NLL': loss_dict['NLL'].forward(output_dict)}
 
             logger.log_data(output_dict, losses, split='test')
@@ -168,11 +173,12 @@ for epoch in tqdm.tqdm(range(opts.num_epochs)):
                 # plot examples in the first batch
                 if count == 0:
                     input_plot = data
-                    sample_plot = output_dict['means_x']  
+                    sample_plot = sample_from_normal(output_dict['means_x'], output_dict['logvars_x'])
                     print("Summarizing...")
                     summaries = summarize_batch(opts, input_plot, output_size=6)
                     print("Summary complete!")     
                 count += 1
+                break
 
         if opts.experiment == 'mnist':
             if epoch%opts.save_freq == 0:

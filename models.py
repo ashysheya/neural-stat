@@ -1,16 +1,10 @@
-
 import torch.nn as nn
 import torch
 import math
 from utils import sample_from_normal
 import torch.nn.functional as F
 
-def get_model(opts):
-    return NeuralStatistician(opts)
-
-# for summarising points in the mnist experiment
-def get_stats(opts):
-    return StatisticNetwork(opts.experiment, opts.context_dim, opts.masked)
+device = torch.device("cuda:0" if torch.cuda.is_available() else "cpu")
 
 
 class NeuralStatistician(nn.Module):
@@ -66,7 +60,7 @@ class NeuralStatistician(nn.Module):
         shared_encoder_dict = self.shared_encoder(outputs)
         outputs.update(shared_encoder_dict)
 
-        context_dict = self.statistic_network.sample(outputs)
+        context_dict = self.statistic_network.sample_conditional(outputs)
         outputs.update(context_dict)
 
         # get parameters for latent variables prior: p(z_1, .., z_L|c)
@@ -288,10 +282,10 @@ class StatisticNetwork(nn.Module):
             if not self.masked:
                 prestat_vector = prestat_vector.view(data_size[0], data_size[1], -1).mean(dim=1)
             else:
-                mask_first = torch.ones((data_size[0], 1, 1)).cuda()
+                mask_first = torch.ones((data_size[0], 1, 1)).to(device)
                 if data_size[1] - 1 > 0:
                     p = 0.8 if input_dict['train'] else 1.0
-                    mask = torch.bernoulli(p*torch.ones((data_size[0], data_size[1] - 1, 1))).cuda()
+                    mask = torch.bernoulli(p*torch.ones((data_size[0], data_size[1] - 1, 1))).to(device)
                     mask = torch.cat([mask_first, mask], 1)
                 else:
                     mask = mask_first
@@ -317,7 +311,7 @@ class StatisticNetwork(nn.Module):
                 'samples_context': samples, 
                 'samples_context_expanded': samples_expanded}
 
-    def sample(self, input_dict):
+    def sample_conditional(self, input_dict):
         output_dict = self.forward(input_dict)
         return {'samples_context': output_dict['means_context']}
 
@@ -344,15 +338,15 @@ class ContextPriorNetwork(nn.Module):
             contexts = input_dict['samples_context']
             means, logvars = torch.zeros_like(contexts), torch.zeros_like(contexts)
             if contexts.is_cuda:
-                means = means.cuda()
-                logvars = logvars.cuda()
+                means = means.to(device)
+                logvars = logvars.to(device)
             return {'means_context_prior': means,
                     'logvars_context_prior': logvars}
 
     def sample(self, num_datasets):
         if self.type_prior == 'standard':
-            means = torch.zeros((num_datasets, self.context_dim)).cuda()
-            logvars = torch.zeros_like(means).cuda()
+            means = torch.zeros((num_datasets, self.context_dim)).to(device)
+            logvars = torch.zeros_like(means).to(device)
             return {'samples_context': sample_from_normal(means, logvars)}
 
 class InferenceNetwork(nn.Module):
@@ -534,11 +528,12 @@ class LatentDecoderNetwork(nn.Module):
         return outputs
 
     def sample(self, input_dict, num_samples_per_dataset):
-        context = input_dict['samples_context']
+        context = input_dict['samples_context']  # this is actually the mean (see NS.sample_conditional())
         context_expanded = context[:, None].expand(-1, num_samples_per_dataset, -1).contiguous()
         context_expanded = context_expanded.view(-1, self.context_dim)
 
         current_input = context_expanded
+        # current_input = context
 
         outputs = {'samples_latent_z': [], 
                    'samples_context_expanded': context_expanded}
@@ -614,7 +609,7 @@ class ObservationDecoderNetwork(nn.Module):
 
         elif experiment == 'youtube':
             # Shared learnable log variance parameter (from https://github.com/conormdurkan/neural-statistician)
-            self.logvar = nn.Parameter(torch.randn(1, 3, 64, 64).cuda())
+            self.logvar = nn.Parameter(torch.randn(1, 3, 64, 64).to(device))
 
             self.pre_conv = nn.Sequential(nn.Linear(input_dim, 1000),
                                           nn.ELU(inplace=True),
@@ -731,3 +726,11 @@ class ObservationDecoderNetwork(nn.Module):
 
         else:
             return {'proba_x': outputs}
+
+
+def get_model(opts) -> NeuralStatistician:
+    return NeuralStatistician(opts)
+
+# for summarising points in the mnist experiment
+def get_stats(opts) -> StatisticNetwork:
+    return StatisticNetwork(opts.experiment, opts.context_dim, opts.masked)
