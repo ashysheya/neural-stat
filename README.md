@@ -31,7 +31,7 @@ right plot colored by the variance. The plots have been rotated to illustrative 
 Train a model:
 
 ```
-python train.py --experiment 'mnist' --num_epochs 100 --context_dim 64 --num_stochastic_layers 3 --z_dim 2 --x_dim 2 --h_dim 2
+python train.py --experiment 'mnist' --num_epochs 100 --num_data_per_dataset 50 --context_dim 64 --num_stochastic_layers 3 --z_dim 2 --x_dim 2 --h_dim 2
 ```
 
 Test a model:
