@@ -12,7 +12,7 @@ device = torch.device("cuda:0" if torch.cuda.is_available() else "cpu")
 # adapt from https://github.com/conormdurkan/neural-statistician/blob/master/spatial/spatialmodel.py
 def summarize_batch(opts, inputs, output_size=6):
     summaries = []
-    for dataset in tqdm.tqdm(inputs[:10]):
+    for dataset in tqdm.tqdm(inputs[:5]):
         summary = summarize(opts, dataset, output_size=output_size)
         summaries.append(summary)
     summaries = torch.cat(summaries)
@@ -23,7 +23,7 @@ def summarize(opts, dataset, output_size=6):
     stats = get_stats(opts).to(device)
 
     # cast to torch Cuda Variable and reshape
-    sample_size = 50
+    sample_size = 200
     dataset = dataset.view(1, sample_size, 2)
     # get approximate posterior over full dataset
     output = stats.forward({'train_data_encoded': dataset})

@@ -194,7 +194,7 @@ for epoch in tqdm.tqdm(range(opts.num_epochs)):
 
                 data = data_dict['datasets'].to(device)
 
-                output_dict = model.sample_conditional(data, num_samples_per_dataset=50)
+                output_dict = model.sample_conditional(data, num_samples_per_dataset=200)
                 # output_dict = model.forward(data, train=False)
                 losses = {'NLL': loss_dict['NLL'].forward(output_dict)}
 
@@ -204,11 +204,11 @@ for epoch in tqdm.tqdm(range(opts.num_epochs)):
                 sample_plot = sample_from_normal(output_dict['means_x'], output_dict['logvars_x'])
                 # sample_plot = output_dict['means_x']  
                 print("Summarizing...")
-                summaries = summarize_batch(opts, input_plot, output_size=6)
+                summaries = summarize_batch(opts, input_plot, output_size=50)
                 print("Summary complete!")     
                 break
             
-            logger.grid(input_plot, sample_plot, summaries=summaries, ncols=10, mode = 'summary')
+            logger.grid(input_plot, sample_plot, summaries=summaries, ncols=5, mode = 'summary')
 
             logger.save_model(model, str(epoch))
 
