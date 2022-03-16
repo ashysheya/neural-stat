@@ -9,6 +9,9 @@ from models import get_model
 from losses import get_loss
 from logs import get_logger
 from utils_mnist import summarize_batch
+import pickle
+
+import matplotlib.pyplot as plt
 
 from utils import sample_from_normal
 
@@ -79,7 +82,7 @@ parser.add_argument('--h_dim', type=int, default=1, help='dimension of h after s
 parser.add_argument('--tensorboard', action='store_true', help='whether to use tensorboard')
 parser.add_argument('--log_dir', type=str, default='logs')
 parser.add_argument('--save_dir', type=str, default='model_params')
-parser.add_argument('--save_freq', type=int, default=5)  # 20
+parser.add_argument('--save_freq', type=int, default=20)  # 20
 
 opts = parser.parse_args()
 
@@ -92,11 +95,11 @@ dataset_module = importlib.import_module('_'.join(['dataset', opts.experiment]))
 
 train_dataset = dataset_module.get_dataset(opts, split='train')
 train_dataloader = DataLoader(train_dataset, batch_size=opts.batch_size, 
-    shuffle=True, num_workers=10)
+    shuffle=True, num_workers=6)
 
 test_dataset = dataset_module.get_dataset(opts, split='val')
 test_dataloader = DataLoader(test_dataset, batch_size=opts.batch_size, 
-    shuffle=True, num_workers=10)
+    shuffle=True, num_workers=6)
 test_batch = next(iter(test_dataloader))
 
 # Initialize the Neural Statistician model in models.py
@@ -108,8 +111,19 @@ optimizer = optim.Adam(model.parameters(), lr=opts.lr, betas=(opts.beta1, 0.999)
 
 alpha = 1.0
 
+vlb_per_epoch = []
+recon_loss_per_epoch = []
+kl_per_epoch = []
+
+iters_per_epoch = (train_dataset.spatial.shape[0] // opts.batch_size)
+
 for epoch in tqdm.tqdm(range(opts.num_epochs)):
     model.train()
+
+    epoch_vlb = 0
+    epoch_recon_loss = 0
+    epoch_kl= 0
+
     for data_dict in train_dataloader:
         data = data_dict['datasets'].to(device)
 
@@ -137,71 +151,83 @@ for epoch in tqdm.tqdm(range(opts.num_epochs)):
         # Save model outputs and losses from the training.
         logger.log_data(output_dict, losses)
 
-    if opts.experiment == 'omniglot' or opts.experiment == 'youtube':
-        logger.log_image(output_dict, 'train')
+        epoch_vlb += (-losses['NLL'] - losses['KL']).item()
+        epoch_recon_loss += -losses['NLL'].item()
+        epoch_kl += losses['KL'].item()
+
+    epoch_vlb /= iters_per_epoch
+    epoch_recon_loss /= iters_per_epoch
+    epoch_kl /= iters_per_epoch
+
+    vlb_per_epoch.append(epoch_vlb)
+    recon_loss_per_epoch.append(epoch_recon_loss)
+    kl_per_epoch.append(epoch_kl)
 
     alpha *= 0.5
 
-    with torch.no_grad():
-        model.eval()
-        if opts.experiment == 'synthetic':
-            contexts_test = []
-            labels_test = []
-            means_test = []
-            variances_test = []
-
-        if opts.experiment == 'mnist':
-            count = 0
-
-        for data_dict in test_dataloader:
-
-            data = data_dict['datasets'].to(device)
-
-            output_dict = model.sample_conditional(data, num_samples_per_dataset=50)
-            losses = {'NLL': loss_dict['NLL'].forward(output_dict)}
-
-            logger.log_data(output_dict, losses, split='test')
-
-            # Save input labels, means and variances for plotting, as well as output context means.
-            if opts.experiment == 'synthetic':
-                labels_test.append(data_dict['targets'].numpy())
-                means_test.append(data_dict['means'].numpy())
-                variances_test.append(data_dict['variances'].numpy())
-                contexts_test.append(output_dict['means_context'].cpu().numpy())
-
-            if opts.experiment == 'mnist':
-                # plot examples in the first batch
-                if count == 0:
-                    input_plot = data
-                    sample_plot = sample_from_normal(output_dict['means_x'], output_dict['logvars_x'])
-                    print("Summarizing...")
-                    summaries = summarize_batch(opts, input_plot, output_size=6)
-                    print("Summary complete!")     
-                count += 1
-                break
-
-        if opts.experiment == 'mnist':
-            if epoch%opts.save_freq == 0:
-                logger.grid(input_plot, sample_plot, summaries=summaries, ncols=10, mode = 'summary')
-                logger.save_model(model, str(epoch))
-
-
-        if opts.experiment == 'omniglot' or opts.experiment == 'youtube':
-            logger.log_image(output_dict, 'test')
-
-    
-    if opts.experiment == 'synthetic':    
-        contexts_test = np.concatenate(contexts_test, axis=0)  # (500*4, 3)
-        labels_test = np.concatenate(labels_test, axis=0)  # (500*4, )
-        means_test = np.concatenate(means_test, axis=0)  # (500*4, )
-        variances_test = np.concatenate(variances_test, axis=0)  # (500*4, )
-
     if epoch % opts.save_freq == 0:
-        if opts.experiment == 'synthetic':
-            # Save a plot of the context means
-            logger.log_embedding(contexts_test, labels_test, means_test, variances_test)
-        logger.save_model(model, str(epoch))
 
-if opts.experiment == 'synthetic':
-    logger.log_embedding(contexts_test, labels_test, means_test, variances_test)
+        with torch.no_grad():
+            model.eval()
+
+            # for data_dict in test_dataloader:
+
+            #     data = data_dict['datasets'].to(device)
+
+            #     output_dict = model.sample_conditional(data, num_samples_per_dataset=50)
+            #     output_dict = model.forward(data, train=False)
+            #     losses = {'NLL': loss_dict['NLL'].forward(output_dict)}
+
+            #     logger.log_data(output_dict, losses, split='test')
+                    
+            #     input_plot = data
+            #     sample_plot = sample_from_normal(output_dict['means_x'], output_dict['logvars_x'])
+            #     # sample_plot = output_dict['means_x']  
+            #     print("Summarizing...")
+            #     summaries = summarize_batch(opts, input_plot, output_size=6)
+            #     print("Summary complete!")     
+            #     break
+
+            # logger.grid(input_plot, sample_plot, summaries=summaries, ncols=10, mode = 'summary')
+
+            for data_dict in train_dataloader:
+
+                data = data_dict['datasets'].to(device)
+
+                output_dict = model.sample_conditional(data, num_samples_per_dataset=50)
+                # output_dict = model.forward(data, train=False)
+                losses = {'NLL': loss_dict['NLL'].forward(output_dict)}
+
+                logger.log_data(output_dict, losses, split='test')
+
+                input_plot = data
+                sample_plot = sample_from_normal(output_dict['means_x'], output_dict['logvars_x'])
+                # sample_plot = output_dict['means_x']  
+                print("Summarizing...")
+                summaries = summarize_batch(opts, input_plot, output_size=6)
+                print("Summary complete!")     
+                break
+            
+            logger.grid(input_plot, sample_plot, summaries=summaries, ncols=10, mode = 'summary')
+
+            logger.save_model(model, str(epoch))
+
 logger.save_model(model, 'last')
+
+
+def plot_loss(save_path, **kwarg_losses):
+    plt.figure()
+    for loss_name, loss in kwarg_losses.items():
+        plt.plot(loss[2:], label=loss_name)
+    plt.xlabel('Epochs')
+    plt.ylabel('Loss')
+    plt.legend()
+    plt.savefig(save_path)
+    plt.close()
+
+
+pickle.dump(vlb_per_epoch, open("vlb.pkl", "wb"))
+pickle.dump(recon_loss_per_epoch, open("recon_loss.pkl", "wb"))
+pickle.dump(kl_per_epoch, open("kl.pkl", "wb"))
+
+plot_loss("./losses.png", vlb=vlb_per_epoch, recon=recon_loss_per_epoch, kl=kl_per_epoch)
